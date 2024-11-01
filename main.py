@@ -166,7 +166,7 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
-                            doc_token += count_tokens(json.loads(document_data))
+                            doc_token += count_tokens(str(document_data))
                             save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
                             st.success(f"{uploaded_file.name} processed and saved to Redis!")
                         except Exception as e:
