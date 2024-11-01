@@ -66,12 +66,12 @@ def handle_question(prompt, spinner_placeholder):
                 )
 
                 # Call ask_question with Redis data
-                answer = ask_question(documents_data, prompt, st.session_state.chat_history)
+                answer, tot_tokens = ask_question(documents_data, prompt, st.session_state.chat_history)
 
             st.session_state.chat_history.append(
                 {
                     "question": prompt,
-                    "answer": answer,
+                    "answer": "answer": f"{answer}\nTotal tokens: {tot_tokens}",
                 }
             )
 
