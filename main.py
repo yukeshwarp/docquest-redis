@@ -71,7 +71,7 @@ def handle_question(prompt, spinner_placeholder):
             st.session_state.chat_history.append(
                 {
                     "question": prompt,
-                    "answer": "answer": f"{answer}\nTotal tokens: {tot_tokens}",
+                    "answer":f"{answer}\nTotal tokens: {tot_tokens}",
                 }
             )
 
