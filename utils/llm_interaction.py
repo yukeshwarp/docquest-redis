@@ -390,7 +390,7 @@ def ask_question(documents, question, chat_history):
             .get("choices", [{}])[0]
             .get("message", {})
             .get("content", "No answer provided.")
-            .strip()
+            .strip(),  prompt_tokens
         )
 
     except requests.exceptions.RequestException as e:
