@@ -4,7 +4,6 @@ import redis
 from utils.pdf_processing import process_pdf_task
 from utils.llm_interaction import ask_question
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import asyncio
 import io
 from docx import Document
 
@@ -12,7 +11,8 @@ from docx import Document
 redis_client = redis.Redis(
     host="yuktestredis.redis.cache.windows.net",
     port=6379,
-    password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs=")
+    password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs="
+)
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -36,7 +36,7 @@ def retrieve_all_documents_from_redis():
         documents[file_name] = get_document_from_redis(file_name)
     return documents
 
-async def handle_question(prompt, spinner_placeholder):
+def handle_question(prompt, spinner_placeholder):
     if prompt:
         try:
             # Retrieve all document data from Redis
@@ -59,13 +59,7 @@ async def handle_question(prompt, spinner_placeholder):
                 )
 
                 # Call ask_question with Redis data
-                answer = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    ask_question,
-                    documents_data,
-                    prompt,
-                    st.session_state.chat_history,
-                )
+                answer = ask_question(documents_data, prompt, st.session_state.chat_history)
 
             st.session_state.chat_history.append(
                 {
@@ -185,6 +179,6 @@ if retrieve_all_documents_from_redis():
     prompt = st.chat_input("Ask me anything about your documents", key="chat_input")
     spinner_placeholder = st.empty()
     if prompt:
-        asyncio.run(handle_question(prompt, spinner_placeholder))
+        handle_question(prompt, spinner_placeholder)
 
 display_chat()
