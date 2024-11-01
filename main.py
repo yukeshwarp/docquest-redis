@@ -7,7 +7,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 from docx import Document
 import uuid
+import tiktoken
 
+def count_tokens(text, model="gpt-4o"):
+    encoding = tiktoken.encoding_for_model(model)
+    tokens = encoding.encode(text)
+    return len(tokens)
+
+doc_token = 0
 # Initialize Redis client without SSL
 redis_client = redis.Redis(
     host="yuktestredis.redis.cache.windows.net",
@@ -159,13 +166,14 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
+                            doc_token += count_tokens(document_data)
                             save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
                             st.success(f"{uploaded_file.name} processed and saved to Redis!")
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
                         progress_bar.progress((i + 1) / total_files)
-
+            st.sidebar.write(f"Total document tokens: {doc_token}")
             progress_text.text("Processing complete.")
             progress_bar.empty()
 
