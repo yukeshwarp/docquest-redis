@@ -6,6 +6,7 @@ from utils.llm_interaction import ask_question
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 from docx import Document
+import uuid
 
 # Initialize Redis client without SSL
 redis_client = redis.Redis(
@@ -14,33 +15,39 @@ redis_client = redis.Redis(
     password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs="
 )
 
+# Generate or retrieve a unique session ID for the user
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())  # Unique ID per user session
+
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-def save_document_to_redis(file_name, document_data):
-    # Store the document data as a JSON string in Redis
-    redis_client.set(f"document_data:{file_name}", json.dumps(document_data))
+def save_document_to_redis(session_id, file_name, document_data):
+    # Store document data with session-specific key in Redis
+    redis_key = f"{session_id}:document_data:{file_name}"
+    redis_client.set(redis_key, json.dumps(document_data))
 
-def get_document_from_redis(file_name):
-    # Retrieve and decode the document data from Redis
-    data = redis_client.get(f"document_data:{file_name}")
+def get_document_from_redis(session_id, file_name):
+    # Retrieve and decode document data from Redis for this session
+    redis_key = f"{session_id}:document_data:{file_name}"
+    data = redis_client.get(redis_key)
     if data:
         return json.loads(data)
     return None
 
-def retrieve_all_documents_from_redis():
-    # Fetch all document data from Redis by matching keys with the prefix "document_data:"
+def retrieve_user_documents_from_redis(session_id):
+    # Fetch only the document data for the current session by matching keys with the session-specific prefix
     documents = {}
-    for key in redis_client.keys("document_data:*"):
-        file_name = key.decode().split("document_data:")[1]
-        documents[file_name] = get_document_from_redis(file_name)
+    for key in redis_client.keys(f"{session_id}:document_data:*"):
+        file_name = key.decode().split(f"{session_id}:document_data:")[1]
+        documents[file_name] = get_document_from_redis(session_id, file_name)
     return documents
 
 def handle_question(prompt, spinner_placeholder):
     if prompt:
         try:
-            # Retrieve all document data from Redis
-            documents_data = retrieve_all_documents_from_redis()
+            # Retrieve only the current user's document data from Redis
+            documents_data = retrieve_user_documents_from_redis(st.session_state.session_id)
 
             with spinner_placeholder.container():
                 st.markdown(
@@ -74,9 +81,9 @@ def handle_question(prompt, spinner_placeholder):
             spinner_placeholder.empty()
 
 def reset_session():
-    # Clear all session state chat history and documents in Redis
+    # Clear chat history and remove only current user's documents in Redis
     st.session_state.chat_history = []
-    for key in redis_client.keys("document_data:*"):
+    for key in redis_client.keys(f"{st.session_state.session_id}:document_data:*"):
         redis_client.delete(key)
 
 def display_chat():
@@ -129,7 +136,7 @@ with st.sidebar:
     if uploaded_files:
         new_files = []
         for uploaded_file in uploaded_files:
-            if not redis_client.exists(f"document_data:{uploaded_file.name}"):
+            if not redis_client.exists(f"{st.session_state.session_id}:document_data:{uploaded_file.name}"):
                 new_files.append(uploaded_file)
             else:
                 st.info(f"{uploaded_file.name} is already uploaded.")
@@ -152,7 +159,7 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
-                            save_document_to_redis(uploaded_file.name, document_data)
+                            save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
                             st.success(f"{uploaded_file.name} processed and saved to Redis!")
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
@@ -162,8 +169,8 @@ with st.sidebar:
             progress_text.text("Processing complete.")
             progress_bar.empty()
 
-    if retrieve_all_documents_from_redis():
-        download_data = json.dumps(retrieve_all_documents_from_redis(), indent=4)
+    if retrieve_user_documents_from_redis(st.session_state.session_id):
+        download_data = json.dumps(retrieve_user_documents_from_redis(st.session_state.session_id), indent=4)
         st.download_button(
             label="Download Document Analysis",
             data=download_data,
@@ -175,7 +182,7 @@ st.image("logoD.png", width=200)
 st.title("docQuest")
 st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly", divider="orange")
 
-if retrieve_all_documents_from_redis():
+if retrieve_user_documents_from_redis(st.session_state.session_id):
     prompt = st.chat_input("Ask me anything about your documents", key="chat_input")
     spinner_placeholder = st.empty()
     if prompt:
