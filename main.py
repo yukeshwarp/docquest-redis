@@ -14,7 +14,6 @@ def count_tokens(text, model="gpt-4o"):
     tokens = encoding.encode(text)
     return len(tokens)
 
-doc_token = 0
 # Initialize Redis client without SSL
 redis_client = redis.Redis(
     host="yuktestredis.redis.cache.windows.net",
@@ -22,12 +21,13 @@ redis_client = redis.Redis(
     password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs="
 )
 
-# Generate or retrieve a unique session ID for the user
+# Initialize session state for session_id, chat_history, and doc_token
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())  # Unique ID per user session
-
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "doc_token" not in st.session_state:
+    st.session_state.doc_token = 0
 
 def save_document_to_redis(session_id, file_name, document_data):
     # Store document data with session-specific key in Redis
@@ -90,6 +90,7 @@ def handle_question(prompt, spinner_placeholder):
 def reset_session():
     # Clear chat history and remove only current user's documents in Redis
     st.session_state.chat_history = []
+    st.session_state.doc_token = 0  # Reset token count
     for key in redis_client.keys(f"{st.session_state.session_id}:document_data:*"):
         redis_client.delete(key)
 
@@ -166,14 +167,14 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
-                            doc_token += count_tokens(str(document_data))
+                            st.session_state.doc_token += count_tokens(str(document_data))  # Increment persistent token count
                             save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
                             st.success(f"{uploaded_file.name} processed and saved to Redis!")
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
                         progress_bar.progress((i + 1) / total_files)
-            st.sidebar.write(f"Total document tokens: {doc_token}")
+            st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
             progress_text.text("Processing complete.")
             progress_bar.empty()
 
