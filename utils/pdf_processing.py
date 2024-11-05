@@ -22,14 +22,10 @@ logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-redis_host = redis_host
-redis_port = 6379
-redis_password = redis_pass
-
 app = Celery(
     "pdf_processor",
-    broker=f"redis://:{redis_password}@{redis_host}:{redis_port}/0",
-    backend=f"redis://:{redis_password}@{redis_host}:{redis_port}/0",
+    broker=f"redis://:{redis_pass}@{redis_host}:6379/0",
+    backend=f"redis://:{redis_pass}@{redis_host}:6379/0",
 )
 
 app.conf.update(
@@ -77,6 +73,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
     batch_data = []
 
     def process_single_page(page_number):
+        nonlocal previous_summary  # Use nonlocal to access the outer variable
         try:
             page = pdf_document.load_page(page_number)
             text = page.get_text("text").strip()
@@ -126,6 +123,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
 def process_pdf_pages(uploaded_file, first_file=False):
     global generated_system_prompt
     file_name = uploaded_file.name
+
     try:
         if file_name.lower().endswith(".pdf"):
             pdf_stream = io.BytesIO(uploaded_file.read())
