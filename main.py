@@ -73,12 +73,12 @@ def display_chat():
     if st.session_state.chat_history:
         for i, chat in enumerate(st.session_state.chat_history):
             user_message = f"""
-            <div style='padding:10px; border-radius:10px; margin:5px 0; background-color: #e1f5fe; text-align:right;'>
+            <div style='padding:10px; border-radius:10px; margin:5px 0; text-align:right;'>
             {chat['question']}
             </div>
             """
             assistant_message = f"""
-            <div style='padding:10px; border-radius:10px; margin:5px 0; background-color: #fff9c4; text-align:left;'>
+            <div style='padding:10px; border-radius:10px; margin:5px 0; text-align:left;'>
             {chat['answer']}
             </div>
             """
