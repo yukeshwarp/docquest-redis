@@ -55,13 +55,11 @@ def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
         images = page.get_images(full=True)
         text_blocks = page.get_text("blocks")
         vector_graphics_detected = bool(page.get_drawings())
-
         page_area = page.rect.width * page.rect.height
         text_area = sum(
             (block[2] - block[0]) * (block[3] - block[1]) for block in text_blocks
         )
         text_coverage = text_area / page_area if page_area > 0 else 0
-
         pix = page.get_pixmap()
         img_data = pix.tobytes("png")
         base64_image = base64.b64encode(img_data).decode("utf-8")
@@ -79,7 +77,6 @@ def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
 def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.4):
     previous_summary = ""
     batch_data = []
-
     for page_number in batch:
         try:
             page = pdf_document.load_page(page_number)
@@ -91,7 +88,6 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
                     text, previous_summary, page_number + 1, system_prompt
                 )
                 previous_summary = summary
-
             image_data = detect_ocr_images_and_vector_graphics_in_pdf(
                 page, ocr_text_threshold
             )
@@ -101,7 +97,6 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
                 image_analysis.append(
                     {"page_number": page_number + 1, "explanation": image_explanation}
                 )
-
             batch_data.append(
                 {
                     "page_number": page_number + 1,
@@ -128,7 +123,6 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
 def process_pdf_pages(uploaded_file, first_file=False):
     global generated_system_prompt
     file_name = uploaded_file.name
-
     try:
         if file_name.lower().endswith(".pdf"):
             pdf_stream = io.BytesIO(uploaded_file.read())
@@ -139,7 +133,6 @@ def process_pdf_pages(uploaded_file, first_file=False):
         document_data = {"document_name": file_name, "pages": []}
         total_pages = len(pdf_document)
         full_text = ""
-
         if first_file and generated_system_prompt is None:
             for page_number in range(total_pages):
                 page = pdf_document.load_page(page_number)

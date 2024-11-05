@@ -9,53 +9,54 @@ from docx import Document
 import uuid
 import tiktoken
 
+
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
     tokens = encoding.encode(text)
     return len(tokens)
 
-# Initialize Redis client without SSL
+
 redis_client = redis.Redis(
     host="yuktestredis.redis.cache.windows.net",
     port=6379,
-    password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs="
+    password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs=",
 )
 
-# Initialize session state for session_id, chat_history, and doc_token
 if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())  # Unique ID per user session
+    st.session_state.session_id = str(uuid.uuid4())
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "doc_token" not in st.session_state:
     st.session_state.doc_token = 0
 
+
 def save_document_to_redis(session_id, file_name, document_data):
-    # Store document data with session-specific key in Redis
     redis_key = f"{session_id}:document_data:{file_name}"
     redis_client.set(redis_key, json.dumps(document_data))
 
+
 def get_document_from_redis(session_id, file_name):
-    # Retrieve and decode document data from Redis for this session
     redis_key = f"{session_id}:document_data:{file_name}"
     data = redis_client.get(redis_key)
     if data:
         return json.loads(data)
     return None
 
+
 def retrieve_user_documents_from_redis(session_id):
-    # Fetch only the document data for the current session by matching keys with the session-specific prefix
     documents = {}
     for key in redis_client.keys(f"{session_id}:document_data:*"):
         file_name = key.decode().split(f"{session_id}:document_data:")[1]
         documents[file_name] = get_document_from_redis(session_id, file_name)
     return documents
 
+
 def handle_question(prompt, spinner_placeholder):
     if prompt:
         try:
-            # Retrieve only the current user's document data from Redis
-            documents_data = retrieve_user_documents_from_redis(st.session_state.session_id)
-
+            documents_data = retrieve_user_documents_from_redis(
+                st.session_state.session_id
+            )
             with spinner_placeholder.container():
                 st.markdown(
                     """
@@ -71,28 +72,27 @@ def handle_question(prompt, spinner_placeholder):
                     """,
                     unsafe_allow_html=True,
                 )
-
-                # Call ask_question with Redis data
-                answer, tot_tokens = ask_question(documents_data, prompt, st.session_state.chat_history)
-
+                answer, tot_tokens = ask_question(
+                    documents_data, prompt, st.session_state.chat_history
+                )
             st.session_state.chat_history.append(
                 {
                     "question": prompt,
-                    "answer":f"{answer}\nTotal tokens: {tot_tokens}",
+                    "answer": f"{answer}\nTotal tokens: {tot_tokens}",
                 }
             )
-
         except Exception as e:
             st.error(f"Error processing question: {e}")
         finally:
             spinner_placeholder.empty()
 
+
 def reset_session():
-    # Clear chat history and remove only current user's documents in Redis
     st.session_state.chat_history = []
-    st.session_state.doc_token = 0  # Reset token count
+    st.session_state.doc_token = 0
     for key in redis_client.keys(f"{st.session_state.session_id}:document_data:*"):
         redis_client.delete(key)
+
 
 def display_chat():
     if st.session_state.chat_history:
@@ -109,7 +109,6 @@ def display_chat():
             """
             st.markdown(user_message, unsafe_allow_html=True)
             st.markdown(assistant_message, unsafe_allow_html=True)
-
             chat_content = {
                 "question": chat["question"],
                 "answer": chat["answer"],
@@ -118,7 +117,6 @@ def display_chat():
             word_io = io.BytesIO()
             doc.save(word_io)
             word_io.seek(0)
-
             st.download_button(
                 label="↴",
                 data=word_io,
@@ -126,12 +124,14 @@ def display_chat():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
+
 def generate_word_document(content):
     doc = Document()
     doc.add_heading("Chat Response", 0)
     doc.add_paragraph(f"Question: {content['question']}")
     doc.add_paragraph(f"Answer: {content['answer']}")
     return doc
+
 
 with st.sidebar:
     uploaded_files = st.file_uploader(
@@ -144,7 +144,9 @@ with st.sidebar:
     if uploaded_files:
         new_files = []
         for uploaded_file in uploaded_files:
-            if not redis_client.exists(f"{st.session_state.session_id}:document_data:{uploaded_file.name}"):
+            if not redis_client.exists(
+                f"{st.session_state.session_id}:document_data:{uploaded_file.name}"
+            ):
                 new_files.append(uploaded_file)
             else:
                 st.info(f"{uploaded_file.name} is already uploaded.")
@@ -167,9 +169,17 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
-                            st.session_state.doc_token += count_tokens(str(document_data))  # Increment persistent token count
-                            save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
-                            st.success(f"{uploaded_file.name} processed and saved to Redis!")
+                            st.session_state.doc_token += count_tokens(
+                                str(document_data)
+                            )
+                            save_document_to_redis(
+                                st.session_state.session_id,
+                                uploaded_file.name,
+                                document_data,
+                            )
+                            st.success(
+                                f"{uploaded_file.name} processed and saved to Redis!"
+                            )
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
@@ -179,7 +189,9 @@ with st.sidebar:
             progress_bar.empty()
 
     if retrieve_user_documents_from_redis(st.session_state.session_id):
-        download_data = json.dumps(retrieve_user_documents_from_redis(st.session_state.session_id), indent=4)
+        download_data = json.dumps(
+            retrieve_user_documents_from_redis(st.session_state.session_id), indent=4
+        )
         st.download_button(
             label="Download Document Analysis",
             data=download_data,

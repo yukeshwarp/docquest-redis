@@ -29,7 +29,6 @@ def preprocess_text(text):
     text = re.sub(r"\s+", " ", text).strip()
     stop_words = set(stopwords.words("english"))
     text = " ".join([word for word in text.split() if word not in stop_words])
-
     return text
 
 
@@ -58,9 +57,7 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
         ],
         "temperature": 0.0,
     }
-
     url = f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}"
-
     for attempt in range(retries):
         try:
             response = requests.post(url, headers=headers, json=data, timeout=30)
@@ -71,7 +68,6 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
                 .get("message", {})
                 .get("content", "No explanation provided.")
             )
-
         except requests.exceptions.Timeout as e:
             if attempt < retries - 1:
                 wait_time = initial_delay * (2**attempt)
@@ -84,11 +80,9 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
                     f"Request failed after {retries} attempts due to timeout: {e}"
                 )
                 return f"Error: Request timed out after {retries} retries."
-
         except requests.exceptions.RequestException as e:
             logging.error(f"Error requesting image explanation: {e}")
             return f"Error: Unable to fetch image explanation due to network issues or API error."
-
     return "Error: Max retries reached without success."
 
 
@@ -182,7 +176,6 @@ def summarize_page(
     headers = HEADERS
     preprocessed_page_text = preprocess_text(page_text)
     preprocessed_previous_summary = preprocess_text(previous_summary)
-
     prompt_message = (
         f"Please rewrite the following page content from (Page {page_number}) along with context from the previous page summary "
         f"to make them concise and well-structured. Maintain proper listing and referencing of the contents if present."
@@ -190,7 +183,6 @@ def summarize_page(
         f"Previous page summary: {preprocessed_previous_summary}\n\n"
         f"Current page content:\n{preprocessed_page_text}\n"
     )
-
     data = {
         "model": model,
         "messages": [
@@ -199,7 +191,6 @@ def summarize_page(
         ],
         "temperature": 0.0,
     }
-
     attempt = 0
     while attempt < max_retries:
         try:
@@ -239,24 +230,25 @@ def ask_question(documents, question, chat_history):
     headers = HEADERS
     preprocessed_question = preprocess_text(question)
     total_tokens = count_tokens(preprocessed_question)
-    
-    # Helper function to calculate token count
+
     def calculate_token_count(text):
         return len(text.split())
 
-    # Calculate total tokens for the entire document
     for doc_name, doc_data in documents.items():
         for page in doc_data["pages"]:
-            total_tokens += calculate_token_count(page.get("full_text", "No full text available"))
+            total_tokens += calculate_token_count(
+                page.get("full_text", "No full text available")
+            )
 
-    # Check relevance of a single page
     def check_page_relevance(doc_name, page):
         page_full_text = page.get("full_text", "No full text available")
-        image_explanation = "\n".join(
-            f"Page {img['page_number']}: {img['explanation']}"
-            for img in page.get("image_analysis", [])
-        ) or "No image analysis."
-
+        image_explanation = (
+            "\n".join(
+                f"Page {img['page_number']}: {img['explanation']}"
+                for img in page.get("image_analysis", [])
+            )
+            or "No image analysis."
+        )
         relevance_check_prompt = f"""
         Document: {doc_name}, Page {page['page_number']}
         Full Text: {page_full_text}
@@ -265,11 +257,13 @@ def ask_question(documents, question, chat_history):
 
         Respond with "yes" if this page contains relevant information, otherwise respond with "no".
         """
-
         relevance_data = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "Determine page relevance to the question."},
+                {
+                    "role": "system",
+                    "content": "Determine page relevance to the question.",
+                },
                 {"role": "user", "content": relevance_check_prompt},
             ],
             "temperature": 0.0,
@@ -283,13 +277,21 @@ def ask_question(documents, question, chat_history):
                 timeout=120,
             )
             response.raise_for_status()
-            relevance_answer = response.json().get("choices", [{}])[0].get("message", {}).get("content", "no").strip().lower()
+            relevance_answer = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "no")
+                .strip()
+                .lower()
+            )
             return relevance_answer == "yes"
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}")
+            logging.error(
+                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+            )
             return False
 
-    # Get all relevant pages concurrently
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = [
@@ -297,22 +299,34 @@ def ask_question(documents, question, chat_history):
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
         ]
-        for future, (doc_name, page) in zip(concurrent.futures.as_completed(futures), [(doc_name, page) for doc_name, doc_data in documents.items() for page in doc_data["pages"]]):
+        for future, (doc_name, page) in zip(
+            concurrent.futures.as_completed(futures),
+            [
+                (doc_name, page)
+                for doc_name, doc_data in documents.items()
+                for page in doc_data["pages"]
+            ],
+        ):
             if future.result():
-                relevant_pages.append({
-                    "doc_name": doc_name,
-                    "page_number": page["page_number"],
-                    "full_text": page.get("full_text", "No full text available"),
-                    "image_explanation": "\n".join(
-                        f"Page {img['page_number']}: {img['explanation']}"
-                        for img in page.get("image_analysis", [])
-                    ) or "No image analysis."
-                })
+                relevant_pages.append(
+                    {
+                        "doc_name": doc_name,
+                        "page_number": page["page_number"],
+                        "full_text": page.get("full_text", "No full text available"),
+                        "image_explanation": "\n".join(
+                            f"Page {img['page_number']}: {img['explanation']}"
+                            for img in page.get("image_analysis", [])
+                        )
+                        or "No image analysis.",
+                    }
+                )
 
     if not relevant_pages:
-        return "The content of the provided documents does not contain an answer to your question.", total_tokens
+        return (
+            "The content of the provided documents does not contain an answer to your question.",
+            total_tokens,
+        )
 
-    # Generate summarized content if relevant content exceeds token limit
     relevant_pages_content = "\n".join(
         f"Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}"
         for page in relevant_pages
@@ -321,8 +335,6 @@ def ask_question(documents, question, chat_history):
         combined_relevant_content = relevant_pages_content
     else:
         combined_relevant_content = summarize_content(relevant_pages)
-
-    # Generate answer from the combined relevant content
     conversation_history = "".join(
         f"User: {preprocess_text(chat['question'])}\nAssistant: {preprocess_text(chat['answer'])}\n"
         for chat in chat_history
@@ -340,7 +352,10 @@ def ask_question(documents, question, chat_history):
     final_data = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "Answer based only on the provided knowledge base."},
+            {
+                "role": "system",
+                "content": "Answer based only on the provided knowledge base.",
+            },
             {"role": "user", "content": prompt_message},
         ],
         "temperature": 0.0,
@@ -354,13 +369,20 @@ def ask_question(documents, question, chat_history):
             timeout=60,
         )
         response.raise_for_status()
-        answer_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "No answer provided.").strip()
+        answer_content = (
+            response.json()
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "No answer provided.")
+            .strip()
+        )
         response_tokens = count_tokens(answer_content)
         total_tokens += response_tokens
         return answer_content, total_tokens
     except requests.exceptions.RequestException as e:
         logging.error(f"Error answering question '{question}': {e}")
         return "Error processing question.", total_tokens
+
 
 def summarize_content(relevant_pages):
     page_summaries = []
@@ -369,21 +391,32 @@ def summarize_content(relevant_pages):
             "model": model,
             "messages": [
                 {"role": "system", "content": "Summarize page content concisely."},
-                {"role": "user", "content": f"Summarize Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}"},
+                {
+                    "role": "user",
+                    "content": f"Summarize Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}",
+                },
             ],
             "temperature": 0.0,
         }
         try:
             response = requests.post(
                 f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=headers,
+                headers=HEADERS,
                 json=summary_data,
                 timeout=60,
             )
             response.raise_for_status()
-            page_summary = response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            page_summary = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+                .strip()
+            )
             page_summaries.append(page_summary)
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error summarizing page '{page['page_number']}' in '{page['doc_name']}': {e}")
-    
+            logging.error(
+                f"Error summarizing page '{page['page_number']}' in '{page['doc_name']}': {e}"
+            )
+
     return "\n".join(page_summaries)
