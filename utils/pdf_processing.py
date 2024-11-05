@@ -40,15 +40,14 @@ app.conf.update(
 )
 
 generated_system_prompt = None
-
+translator = str.maketrans("", "", string.punctuation)  # Precompute punctuation removal
 
 def remove_stopwords_and_blanks(text):
-    text = text.translate(str.maketrans("", "", string.punctuation))
+    text = text.translate(translator)  # Use precomputed translator
     filtered_text = " ".join(
         [word for word in text.split() if word.lower() not in stop_words]
     )
     return " ".join(filtered_text.split())
-
 
 def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
     try:
@@ -60,7 +59,7 @@ def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
             (block[2] - block[0]) * (block[3] - block[1]) for block in text_blocks
         )
         text_coverage = text_area / page_area if page_area > 0 else 0
-        pix = page.get_pixmap()
+        pix = page.get_pixmap(dpi=72)  # Lower resolution to improve speed
         img_data = pix.tobytes("png")
         base64_image = base64.b64encode(img_data).decode("utf-8")
         pix = None
@@ -73,11 +72,11 @@ def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
 
     return None
 
-
 def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.4):
     previous_summary = ""
     batch_data = []
-    for page_number in batch:
+
+    def process_single_page(page_number):
         try:
             page = pdf_document.load_page(page_number)
             text = page.get_text("text").strip()
@@ -88,6 +87,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
                     text, previous_summary, page_number + 1, system_prompt
                 )
                 previous_summary = summary
+
             image_data = detect_ocr_images_and_vector_graphics_in_pdf(
                 page, ocr_text_threshold
             )
@@ -97,28 +97,31 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
                 image_analysis.append(
                     {"page_number": page_number + 1, "explanation": image_explanation}
                 )
-            batch_data.append(
-                {
-                    "page_number": page_number + 1,
-                    "full_text": text,
-                    "text_summary": summary,
-                    "image_analysis": image_analysis,
-                }
-            )
+            return {
+                "page_number": page_number + 1,
+                "full_text": text,
+                "text_summary": summary,
+                "image_analysis": image_analysis,
+            }
 
         except Exception as e:
             logging.error(f"Error processing page {page_number + 1}: {e}")
-            batch_data.append(
-                {
-                    "page_number": page_number + 1,
-                    "full_text": "",
-                    "text_summary": "Error in processing this page",
-                    "image_analysis": [],
-                }
-            )
+            return {
+                "page_number": page_number + 1,
+                "full_text": "",
+                "text_summary": "Error in processing this page",
+                "image_analysis": [],
+            }
+
+    with ThreadPoolExecutor() as page_executor:  # Execute within the batch for parallelization
+        future_to_page = {
+            page_executor.submit(process_single_page, page_number): page_number
+            for page_number in batch
+        }
+        for future in as_completed(future_to_page):
+            batch_data.append(future.result())
 
     return batch_data
-
 
 def process_pdf_pages(uploaded_file, first_file=False):
     global generated_system_prompt
@@ -171,12 +174,11 @@ def process_pdf_pages(uploaded_file, first_file=False):
         logging.error(f"Error processing PDF file {file_name}: {e}")
         raise ValueError(f"Unable to process the file {file_name}. Error: {e}")
 
-
-@app.task
-def process_pdf_task(uploaded_file, first_file=False):
+@app.task(bind=True)
+def process_pdf_task(self, uploaded_file, first_file=False):
     try:
         result = process_pdf_pages(uploaded_file, first_file)
         return result
     except Exception as e:
         logging.error(f"Failed to process PDF: {e}")
-        raise e
+        self.retry(exc=e, countdown=5)  # Enable retry with a delay
