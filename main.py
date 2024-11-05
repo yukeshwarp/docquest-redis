@@ -9,19 +9,19 @@ from docx import Document
 import uuid
 import tiktoken
 
-
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
     tokens = encoding.encode(text)
     return len(tokens)
 
-
+# Initialize Redis client
 redis_client = redis.Redis(
     host="yuktestredis.redis.cache.windows.net",
     port=6379,
     password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs=",
 )
 
+# Session state management
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "chat_history" not in st.session_state:
@@ -29,11 +29,9 @@ if "chat_history" not in st.session_state:
 if "doc_token" not in st.session_state:
     st.session_state.doc_token = 0
 
-
 def save_document_to_redis(session_id, file_name, document_data):
     redis_key = f"{session_id}:document_data:{file_name}"
     redis_client.set(redis_key, json.dumps(document_data))
-
 
 def get_document_from_redis(session_id, file_name):
     redis_key = f"{session_id}:document_data:{file_name}"
@@ -42,7 +40,6 @@ def get_document_from_redis(session_id, file_name):
         return json.loads(data)
     return None
 
-
 def retrieve_user_documents_from_redis(session_id):
     documents = {}
     for key in redis_client.keys(f"{session_id}:document_data:*"):
@@ -50,42 +47,21 @@ def retrieve_user_documents_from_redis(session_id):
         documents[file_name] = get_document_from_redis(session_id, file_name)
     return documents
 
-
 def handle_question(prompt, spinner_placeholder):
     if prompt:
         try:
-            documents_data = retrieve_user_documents_from_redis(
-                st.session_state.session_id
-            )
-            with spinner_placeholder.container():
-                st.markdown(
-                    """
-                    <header>
-                    <div style="text-align: center;">
-                        <div class="spinner" style="margin: 20px;">
-                            <div class="bounce1"></div>
-                            <div class="bounce2"></div>
-                            <div class="bounce3"></div>
-                        </div>
-                    </div>
-                    </header>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                answer, tot_tokens = ask_question(
-                    documents_data, prompt, st.session_state.chat_history
-                )
-            st.session_state.chat_history.append(
-                {
-                    "question": prompt,
-                    "answer": f"{answer}\nTotal tokens: {tot_tokens}",
-                }
-            )
+            documents_data = retrieve_user_documents_from_redis(st.session_state.session_id)
+            with spinner_placeholder:
+                st.spinner("Processing your question...")  # Display a spinner during processing
+                answer, tot_tokens = ask_question(documents_data, prompt, st.session_state.chat_history)
+            st.session_state.chat_history.append({
+                "question": prompt,
+                "answer": f"{answer}\nTotal tokens: {tot_tokens}",
+            })
         except Exception as e:
             st.error(f"Error processing question: {e}")
         finally:
             spinner_placeholder.empty()
-
 
 def reset_session():
     st.session_state.chat_history = []
@@ -93,17 +69,16 @@ def reset_session():
     for key in redis_client.keys(f"{st.session_state.session_id}:document_data:*"):
         redis_client.delete(key)
 
-
 def display_chat():
     if st.session_state.chat_history:
         for i, chat in enumerate(st.session_state.chat_history):
             user_message = f"""
-            <div style='padding:10px; border-radius:10px; margin:5px 0; text-align:right;'>
+            <div style='padding:10px; border-radius:10px; margin:5px 0; background-color: #e1f5fe; text-align:right;'>
             {chat['question']}
             </div>
             """
             assistant_message = f"""
-            <div style='padding:10px; border-radius:10px; margin:5px 0; text-align:left;'>
+            <div style='padding:10px; border-radius:10px; margin:5px 0; background-color: #fff9c4; text-align:left;'>
             {chat['answer']}
             </div>
             """
@@ -118,12 +93,11 @@ def display_chat():
             doc.save(word_io)
             word_io.seek(0)
             st.download_button(
-                label="↴",
+                label="Download Response",
                 data=word_io,
-                file_name=f"chat_{i+1}.docx",
+                file_name=f"chat_{i + 1}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
-
 
 def generate_word_document(content):
     doc = Document()
@@ -131,7 +105,6 @@ def generate_word_document(content):
     doc.add_paragraph(f"Question: {content['question']}")
     doc.add_paragraph(f"Answer: {content['answer']}")
     return doc
-
 
 with st.sidebar:
     uploaded_files = st.file_uploader(
@@ -144,9 +117,7 @@ with st.sidebar:
     if uploaded_files:
         new_files = []
         for uploaded_file in uploaded_files:
-            if not redis_client.exists(
-                f"{st.session_state.session_id}:document_data:{uploaded_file.name}"
-            ):
+            if not redis_client.exists(f"{st.session_state.session_id}:document_data:{uploaded_file.name}"):
                 new_files.append(uploaded_file)
             else:
                 st.info(f"{uploaded_file.name} is already uploaded.")
@@ -156,12 +127,10 @@ with st.sidebar:
             progress_bar = st.progress(0)
             total_files = len(new_files)
 
-            with st.spinner("Learning about your document(s)..."):
+            with st.spinner("Processing documents..."):
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     future_to_file = {
-                        executor.submit(
-                            process_pdf_task, uploaded_file, first_file=(index == 0)
-                        ): uploaded_file
+                        executor.submit(process_pdf_task, uploaded_file, first_file=(index == 0)): uploaded_file
                         for index, uploaded_file in enumerate(new_files)
                     }
 
@@ -169,29 +138,20 @@ with st.sidebar:
                         uploaded_file = future_to_file[future]
                         try:
                             document_data = future.result()
-                            st.session_state.doc_token += count_tokens(
-                                str(document_data)
-                            )
-                            save_document_to_redis(
-                                st.session_state.session_id,
-                                uploaded_file.name,
-                                document_data,
-                            )
-                            st.success(
-                                f"{uploaded_file.name} processed and saved to Redis!"
-                            )
+                            st.session_state.doc_token += count_tokens(str(document_data))
+                            save_document_to_redis(st.session_state.session_id, uploaded_file.name, document_data)
+                            st.success(f"{uploaded_file.name} processed successfully!")
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
                         progress_bar.progress((i + 1) / total_files)
+
             st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
-            progress_text.text("Processing complete.")
+            progress_text.text("All documents processed.")
             progress_bar.empty()
 
     if retrieve_user_documents_from_redis(st.session_state.session_id):
-        download_data = json.dumps(
-            retrieve_user_documents_from_redis(st.session_state.session_id), indent=4
-        )
+        download_data = json.dumps(retrieve_user_documents_from_redis(st.session_state.session_id), indent=4)
         st.download_button(
             label="Download Document Analysis",
             data=download_data,
@@ -201,7 +161,7 @@ with st.sidebar:
 
 st.image("logoD.png", width=200)
 st.title("docQuest")
-st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly", divider="orange")
+st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly")
 
 if retrieve_user_documents_from_redis(st.session_state.session_id):
     prompt = st.chat_input("Ask me anything about your documents", key="chat_input")
