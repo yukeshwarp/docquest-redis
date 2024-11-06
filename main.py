@@ -107,6 +107,7 @@ def generate_word_document(content):
     return doc
 
 with st.sidebar:
+    st.write(f"**Total Document Tokens:** {st.session_state.doc_token}")
     uploaded_files = st.file_uploader(
         "Upload your documents",
         type=["pdf", "docx", "xlsx", "pptx"],
@@ -146,7 +147,7 @@ with st.sidebar:
 
                         progress_bar.progress((i + 1) / total_files)
 
-            st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
+            st.sidebar.write(f"**Total Document Tokens:** {st.session_state.doc_token}")
             progress_text.text("All documents processed.")
             progress_bar.empty()
 
