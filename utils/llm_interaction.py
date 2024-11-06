@@ -235,55 +235,69 @@ def summarize_page(
             time.sleep(jitter)
 
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import requests
-import logging
-
 def ask_question(documents, question, chat_history):
     headers = HEADERS
     preprocessed_question = preprocess_text(question)
-    
-    # Pre-calculate total tokens for the question and all document pages
+
+    def calculate_token_count(text):
+        return len(text.split())
+
     total_tokens = count_tokens(preprocessed_question)
-    doc_token_count = sum(
-        count_tokens(page.get("full_text", "No full text available"))
-        for doc_data in documents.values()
-        for page in doc_data["pages"]
-    )
-    
-    # Define function for page relevance checking
+
+    for doc_name, doc_data in documents.items():
+        for page in doc_data["pages"]:
+            total_tokens += calculate_token_count(page.get("full_text", "No full text available"))
+
     def check_page_relevance(doc_name, page):
         page_full_text = page.get("full_text", "No full text available")
         image_explanation = (
-            "\n".join(f"Page {img['page_number']}: {img['explanation']}"
-            for img in page.get("image_analysis", [])) or "No image analysis."
+            "\n".join(
+                f"Page {img['page_number']}: {img['explanation']}"
+                for img in page.get("image_analysis", [])
+            )
+            or "No image analysis."
         )
+
         relevance_check_prompt = f"""
+        Here's the full text and image analysis of a page:
+
         Document: {doc_name}, Page {page['page_number']}
         Full Text: {page_full_text}
         Image Analysis: {image_explanation}
-        Question: {preprocessed_question}
 
-        Respond with "yes" if this page contains relevant information.
+        Question asked by user: {preprocessed_question}
+
+        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
         """
+
         relevance_data = {
             "model": model,
             "messages": [
-                {"role": "system", "content": "Determine page relevance to the question."},
+                {
+                    "role": "system",
+                    "content": "You are an assistant that determines if a page is relevant to a question.",
+                },
                 {"role": "user", "content": relevance_check_prompt},
             ],
             "temperature": 0.0,
         }
-        
+
         try:
             response = requests.post(
                 f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
                 headers=headers,
                 json=relevance_data,
-                timeout=30,
+                timeout=120,
             )
             response.raise_for_status()
-            relevance_answer = response.json().get("choices", [{}])[0].get("message", {}).get("content", "no").strip().lower()
+            relevance_answer = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "no")
+                .strip()
+                .lower()
+            )
             if relevance_answer == "yes":
                 return {
                     "doc_name": doc_name,
@@ -291,72 +305,150 @@ def ask_question(documents, question, chat_history):
                     "full_text": page_full_text,
                     "image_explanation": image_explanation,
                 }
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error checking relevance for {doc_name}, Page {page['page_number']}: {e}")
-        return None
 
-    # Collect relevant pages using parallel processing
+        except requests.exceptions.RequestException as e:
+            logging.error(
+                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+            )
+            return None
+
     relevant_pages = []
-    with ThreadPoolExecutor() as executor:
-        futures = [
-            executor.submit(check_page_relevance, doc_name, page)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_page = {
+            executor.submit(check_page_relevance, doc_name, page): (doc_name, page)
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
-        ]
-        
-        for future in as_completed(futures):
+        }
+
+        for future in concurrent.futures.as_completed(future_to_page):
             result = future.result()
             if result:
                 relevant_pages.append(result)
-    
+
     if not relevant_pages:
         return "The content of the provided documents does not contain an answer to your question.", total_tokens
 
-    # Check if hierarchical summarization is necessary
+    # Calculate token count for all relevant pages
     relevant_pages_content = "\n".join(
         f"Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}"
         for page in relevant_pages
     )
     relevant_tokens = count_tokens(relevant_pages_content)
 
-    if relevant_tokens > 125000:
-        # Hierarchical Summarization (Only if tokens exceed 125000)
-        page_summaries = []
-        with ThreadPoolExecutor() as executor:
-            summary_futures = [
-                executor.submit(summarize_page, page) for page in relevant_pages
-            ]
-            for future in as_completed(summary_futures):
-                page_summary = future.result()
-                if page_summary:
-                    page_summaries.append(page_summary)
-        
-        combined_page_summaries = "\n".join(page_summaries)
-        combined_relevant_content = summarize_content(combined_page_summaries)
-    else:
-        # If within token limit, use the full content
+    if relevant_tokens <= 125000:
+        # Use entire relevant content if token count is within the limit
         combined_relevant_content = relevant_pages_content
+    else:
+        # Step 1: Summarize each relevant page individually if token count exceeds the limit
+        page_summaries = []
+        for page in relevant_pages:
+            page_summary_prompt = f"""
+            Summarize the following page content briefly:
 
-    # Final answer generation
+            Document: {page['doc_name']}, Page {page['page_number']}
+            Full Text: {page['full_text']}
+            Image Analysis: {page['image_explanation']}
+            """
+            summary_data = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an assistant that summarizes page content concisely.",
+                    },
+                    {"role": "user", "content": page_summary_prompt},
+                ],
+                "temperature": 0.0,
+            }
+            try:
+                response = requests.post(
+                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                    headers=headers,
+                    json=summary_data,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                page_summary = (
+                    response.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                page_summaries.append(page_summary)
+
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}")
+
+        # Step 2: Combine individual page summaries into section summaries
+        combined_page_summaries = "\n".join(page_summaries)
+        section_summary_prompt = f"""
+        Combine the following summaries into a concise summary that captures the overall information:
+
+        {combined_page_summaries}
+        """
+        section_summary_data = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an assistant that creates a concise summary from multiple summaries.",
+                },
+                {"role": "user", "content": section_summary_prompt},
+            ],
+            "temperature": 0.0,
+        }
+
+        try:
+            response = requests.post(
+                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                headers=headers,
+                json=section_summary_data,
+                timeout=60,
+            )
+            response.raise_for_status()
+            combined_relevant_content = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "No summary provided.")
+                .strip()
+            )
+
+        except requests.exceptions.RequestException as e:
+            logging.error("Error combining summaries: {}".format(e))
+            return "Error processing question.", total_tokens
+
+    # Step 3: Generate final answer based on combined relevant content
     conversation_history = "".join(
         f"User: {preprocess_text(chat['question'])}\nAssistant: {preprocess_text(chat['answer'])}\n"
         for chat in chat_history
     )
-    
+
     prompt_message = f"""
-        Relevant content from documents:
+        You are given the following relevant content from multiple documents:
 
+        ---
         {combined_relevant_content}
+        ---
 
-        Previous responses in chat: {conversation_history}
+        Previous responses over the current chat session: {conversation_history}
+
+        Answer the following question based **strictly and only** on the factual information provided in the content above. 
+        Carefully verify all details from the content and do not generate any information that is not explicitly mentioned in it.
+        Ensure the response is clearly formatted for readability.
 
         Question: {preprocessed_question}
-    """
+        """
+
     prompt_tokens = count_tokens(prompt_message)
     final_data = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "Answer based on provided knowledge only."},
+            {
+                "role": "system",
+                "content": "You are an assistant that answers questions based only on provided knowledge base.",
+            },
             {"role": "user", "content": prompt_message},
         ],
         "temperature": 0.0,
@@ -370,7 +462,14 @@ def ask_question(documents, question, chat_history):
             timeout=60,
         )
         response.raise_for_status()
-        answer_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "No answer provided.").strip()
+        answer_content = (
+            response.json()
+            .get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "No answer provided.")
+            .strip()
+        )
+
         response_tokens = count_tokens(answer_content)
         total_tokens += response_tokens
 
@@ -379,50 +478,3 @@ def ask_question(documents, question, chat_history):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error answering question '{question}': {e}")
         return "Error processing question.", total_tokens
-
-# Helper functions for summarization
-def summarize_page(page):
-    page_summary_prompt = f"Summarize this page: Document: {page['doc_name']}, Page {page['page_number']} Full Text: {page['full_text']} Image Analysis: {page['image_explanation']}"
-    summary_data = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "Summarize page content concisely."},
-            {"role": "user", "content": page_summary_prompt},
-        ],
-        "temperature": 0.0,
-    }
-    try:
-        response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json=summary_data,
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}")
-        return ""
-
-def summarize_content(summaries):
-    section_summary_prompt = f"Summarize combined summaries: {summaries}"
-    section_summary_data = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "Concise summary from multiple summaries."},
-            {"role": "user", "content": section_summary_prompt},
-        ],
-        "temperature": 0.0,
-    }
-    try:
-        response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json=section_summary_data,
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json().get("choices", [{}])[0].get("message", {}).get("content", "No summary provided.").strip()
-    except requests.exceptions.RequestException as e:
-        logging.error("Error combining summaries: {}".format(e))
-        return "Error creating section summary."
