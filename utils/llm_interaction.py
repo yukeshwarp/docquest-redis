@@ -288,7 +288,7 @@ def ask_question(documents, question, chat_history):
                     f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
                     headers=headers,
                     json=relevance_data,
-                    timeout=120,
+                    timeout=60,
                 )
                 response.raise_for_status()
                 relevance_answer = (
