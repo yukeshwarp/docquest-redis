@@ -239,6 +239,70 @@ def ask_question(documents, question, chat_history):
     headers = HEADERS
     preprocessed_question = preprocess_text(question)
 
+    def check_page_relevance(doc_name, page, headers, azure_endpoint, model, preprocessed_question):
+        page_full_text = page.get("full_text", "No full text available")
+        image_explanation = (
+            "\n".join(
+                f"Page {img['page_number']}: {img['explanation']}"
+                for img in page.get("image_analysis", [])
+            )
+            or "No image analysis."
+        )
+    
+        relevance_check_prompt = f"""
+        Here's the full text and image analysis of a page:
+    
+        Document: {doc_name}, Page {page['page_number']}
+        Full Text: {page_full_text}
+        Image Analysis: {image_explanation}
+    
+        Question asked by user: {preprocessed_question}
+    
+        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
+        """
+    
+        relevance_data = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an assistant that determines if a page is relevant to a question.",
+                },
+                {"role": "user", "content": relevance_check_prompt},
+            ],
+            "temperature": 0.0,
+        }
+    
+        try:
+            response = requests.post(
+                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                headers=headers,
+                json=relevance_data,
+                timeout=120,
+            )
+            response.raise_for_status()
+            relevance_answer = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "no")
+                .strip()
+                .lower()
+            )
+            if relevance_answer == "yes":
+                return {
+                    "doc_name": doc_name,
+                    "page_number": page["page_number"],
+                    "full_text": page_full_text,
+                    "image_explanation": image_explanation,
+                }
+    
+        except requests.exceptions.RequestException as e:
+            logging.error(
+                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+            )
+            return None
+        
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_page = {
@@ -263,6 +327,7 @@ def ask_question(documents, question, chat_history):
 
     def summarize_batch(batch_texts):
         batch_content = "\n".join(batch_texts)
+        
         batch_summary_prompt = f"""
         Summarize the following document pages briefly:
 
