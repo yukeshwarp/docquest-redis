@@ -282,35 +282,39 @@ def ask_question(documents, question, chat_history):
             "temperature": 0.0,
         }
 
-        try:
-            response = requests.post(
-                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=headers,
-                json=relevance_data,
-                timeout=120,
-            )
-            response.raise_for_status()
-            relevance_answer = (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "no")
-                .strip()
-                .lower()
-            )
-            if relevance_answer == "yes":
-                return {
-                    "doc_name": doc_name,
-                    "page_number": page["page_number"],
-                    "full_text": page_full_text,
-                    "image_explanation": image_explanation,
-                }
+        for attempt in range(5):  # Max of 5 retries
+            try:
+                response = requests.post(
+                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                    headers=headers,
+                    json=relevance_data,
+                    timeout=120,
+                )
+                response.raise_for_status()
+                relevance_answer = (
+                    response.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "no")
+                    .strip()
+                    .lower()
+                )
+                if relevance_answer == "yes":
+                    return {
+                        "doc_name": doc_name,
+                        "page_number": page["page_number"],
+                        "full_text": page_full_text,
+                        "image_explanation": image_explanation,
+                    }
+            except requests.exceptions.RequestException as e:
+                logging.error(
+                    f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+                )
+                # Exponential backoff with random jitter
+                backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(backoff_time)
 
-        except requests.exceptions.RequestException as e:
-            logging.error(
-                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
-            )
-            return None
+        return None
 
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -336,10 +340,8 @@ def ask_question(documents, question, chat_history):
     relevant_tokens = count_tokens(relevant_pages_content)
 
     if relevant_tokens <= 125000:
-        # Use entire relevant content if token count is within the limit
         combined_relevant_content = relevant_pages_content
     else:
-        # Step 1: Summarize each relevant page individually if token count exceeds the limit
         page_summaries = []
         for page in relevant_pages:
             page_summary_prompt = f"""
@@ -360,27 +362,29 @@ def ask_question(documents, question, chat_history):
                 ],
                 "temperature": 0.0,
             }
-            try:
-                response = requests.post(
-                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                    headers=headers,
-                    json=summary_data,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                page_summary = (
-                    response.json()
-                    .get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
-                page_summaries.append(page_summary)
+            for attempt in range(5):  # Retry up to 5 times
+                try:
+                    response = requests.post(
+                        f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                        headers=headers,
+                        json=summary_data,
+                        timeout=60,
+                    )
+                    response.raise_for_status()
+                    page_summary = (
+                        response.json()
+                        .get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                        .strip()
+                    )
+                    page_summaries.append(page_summary)
+                    break
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}")
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(backoff_time)
 
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}")
-
-        # Step 2: Combine individual page summaries into section summaries
         combined_page_summaries = "\n".join(page_summaries)
         section_summary_prompt = f"""
         Combine the following summaries into a concise summary that captures the overall information:
@@ -399,27 +403,30 @@ def ask_question(documents, question, chat_history):
             "temperature": 0.0,
         }
 
-        try:
-            response = requests.post(
-                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=headers,
-                json=section_summary_data,
-                timeout=60,
-            )
-            response.raise_for_status()
-            combined_relevant_content = (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "No summary provided.")
-                .strip()
-            )
-
-        except requests.exceptions.RequestException as e:
-            logging.error("Error combining summaries: {}".format(e))
+        for attempt in range(5):
+            try:
+                response = requests.post(
+                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                    headers=headers,
+                    json=section_summary_data,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                combined_relevant_content = (
+                    response.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "No summary provided.")
+                    .strip()
+                )
+                break
+            except requests.exceptions.RequestException as e:
+                logging.error("Error combining summaries: {}".format(e))
+                backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(backoff_time)
+        else:
             return "Error processing question.", total_tokens
 
-    # Step 3: Generate final answer based on combined relevant content
     conversation_history = "".join(
         f"User: {preprocess_text(chat['question'])}\nAssistant: {preprocess_text(chat['answer'])}\n"
         for chat in chat_history
@@ -454,27 +461,29 @@ def ask_question(documents, question, chat_history):
         "temperature": 0.0,
     }
 
-    try:
-        response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json=final_data,
-            timeout=60,
-        )
-        response.raise_for_status()
-        answer_content = (
-            response.json()
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "No answer provided.")
-            .strip()
-        )
+    for attempt in range(5):  # Retry up to 5 times
+        try:
+            response = requests.post(
+                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                headers=headers,
+                json=final_data,
+                timeout=60,
+            )
+            response.raise_for_status()
+            answer_content = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "No answer provided.")
+                .strip()
+            )
+            response_tokens = count_tokens(answer_content)
+            total_tokens += response_tokens
+            return answer_content, total_tokens
 
-        response_tokens = count_tokens(answer_content)
-        total_tokens += response_tokens
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error answering question '{question}': {e}")
+            backoff_time = (2 ** attempt) + random.uniform(0, 1)
+            time.sleep(backoff_time)
 
-        return answer_content, total_tokens
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error answering question '{question}': {e}")
-        return "Error processing question.", total_tokens
+    return "Error processing question.", total_tokens
