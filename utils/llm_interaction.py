@@ -306,15 +306,18 @@ def ask_question(documents, question, chat_history):
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_page = {
-            executor.submit(check_page_relevance, doc_name, page): (doc_name, page)
+            executor.submit(
+                check_page_relevance, doc_name, page, headers, azure_endpoint, model, preprocessed_question
+            ): (doc_name, page)
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
         }
-
+    
         for future in concurrent.futures.as_completed(future_to_page):
             result = future.result()
             if result:
                 relevant_pages.append(result)
+
 
     if not relevant_pages:
         return "The content of the provided documents does not contain an answer to your question."
