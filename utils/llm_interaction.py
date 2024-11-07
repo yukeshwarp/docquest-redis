@@ -436,8 +436,9 @@ def ask_question(documents, question, chat_history):
         )
         response.raise_for_status()
         answer_content = response.json().get("choices", [{}])[0].get("message", {}).get("content", "No answer provided.").strip()
-        return answer_content
+        tot_msg_cnt = count_tokens(prompt_message)
+        return answer_content, tot_msg_cnt
     except requests.exceptions.RequestException as e:
         logging.error(f"Error answering question: {e}")
-        return "Error processing question."
+        return "Error processing question.", tot_msg_cnt
 
