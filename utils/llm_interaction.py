@@ -154,7 +154,7 @@ def generate_system_prompt(document_content):
             f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
             headers=headers,
             json=data,
-            timeout=20,
+            timeout=60,
         )
         response.raise_for_status()
         prompt_response = (
@@ -207,7 +207,7 @@ def summarize_page(
                 f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
                 headers=headers,
                 json=data,
-                timeout=50,
+                timeout=60,
             )
             response.raise_for_status()
             logging.info(
