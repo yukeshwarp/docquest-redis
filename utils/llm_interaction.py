@@ -63,7 +63,7 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
 
     for attempt in range(retries):
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=30)
+            response = requests.post(url, headers=headers, json=data, timeout=120)
             response.raise_for_status()
             return (
                 response.json()
