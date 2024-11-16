@@ -10,7 +10,6 @@ import tiktoken
 import concurrent.futures
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import NMF
-import numpy as np
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
