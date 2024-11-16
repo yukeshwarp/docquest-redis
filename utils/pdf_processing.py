@@ -38,12 +38,14 @@ app.conf.update(
 generated_system_prompt = None
 translator = str.maketrans("", "", string.punctuation)  # Precompute punctuation removal
 
+
 def remove_stopwords_and_blanks(text):
     text = text.translate(translator)  # Use precomputed translator
     filtered_text = " ".join(
         [word for word in text.split() if word.lower() not in stop_words]
     )
     return " ".join(filtered_text.split())
+
 
 def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
     try:
@@ -67,6 +69,7 @@ def detect_ocr_images_and_vector_graphics_in_pdf(page, ocr_text_threshold=0.4):
         logging.error(f"Error detecting OCR images/graphics on page {page.number}: {e}")
 
     return None
+
 
 def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.4):
     previous_summary = ""
@@ -120,6 +123,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
 
     return batch_data
 
+
 def process_pdf_pages(uploaded_file, first_file=False):
     global generated_system_prompt
     file_name = uploaded_file.name
@@ -171,6 +175,7 @@ def process_pdf_pages(uploaded_file, first_file=False):
     except Exception as e:
         logging.error(f"Error processing PDF file {file_name}: {e}")
         raise ValueError(f"Unable to process the file {file_name}. Error: {e}")
+
 
 @app.task(bind=True)
 def process_pdf_task(self, uploaded_file, first_file=False):

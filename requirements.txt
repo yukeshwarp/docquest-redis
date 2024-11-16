@@ -9,3 +9,4 @@ python-docx
 celery
 redis
 azure-storage-blob
+scikit-learn
