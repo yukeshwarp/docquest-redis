@@ -237,19 +237,26 @@ def summarize_page(
             )
             time.sleep(jitter)
 
+
 # Define function to extract topics using NMF
-def extract_topics_from_text(text, n_topics=3, n_top_words=5):
+def extract_topics_from_text(text, max_topics=50, max_top_words=50):
     try:
-        vectorizer = TfidfVectorizer(stop_words="english", max_features=500)
+        # Adjust the number of features dynamically based on the text length
+        max_features = min(1000, len(text.split()))
+        vectorizer = TfidfVectorizer(stop_words="english", max_features=max_features)
         tfidf = vectorizer.fit_transform([text])
-        nmf = NMF(n_components=n_topics, random_state=42)
+
+        # Dynamically set the number of topics to avoid overfitting small texts
+        n_topics = min(max_topics, tfidf.shape[1])
+        nmf = NMF(n_components=n_topics, random_state=42, max_iter=500)
         nmf.fit(tfidf)
 
         feature_names = vectorizer.get_feature_names_out()
+
+        # Ensure we capture as many words per topic as possible
+        n_top_words = min(max_top_words, len(feature_names))
         topics = [
-            ", ".join(
-                [feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]]
-            )
+            ", ".join([feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]])
             for topic in nmf.components_
         ]
         return " | ".join(topics)
@@ -257,10 +264,11 @@ def extract_topics_from_text(text, n_topics=3, n_top_words=5):
         logging.error(f"Error extracting topics: {e}")
         return "Error extracting topics."
 
+
 # Update the relevance check function
 def check_page_relevance(doc_name, page, preprocessed_question):
     page_full_text = page.get("full_text", "No full text available")
-    
+
     # Extract topics from the full text
     extracted_topics = extract_topics_from_text(page_full_text)
 
@@ -331,7 +339,6 @@ def check_page_relevance(doc_name, page, preprocessed_question):
     return None
 
 
-
 def ask_question(documents, question, chat_history):
     headers = HEADERS
     preprocessed_question = preprocess_text(question)
@@ -370,11 +377,13 @@ def ask_question(documents, question, chat_history):
 
     if is_summary_request(preprocessed_question):
         combined_text = "\n".join(
-            page.get("full_text", "") for doc_data in documents.values() for page in doc_data["pages"]
+            page.get("full_text", "")
+            for doc_data in documents.values()
+            for page in doc_data["pages"]
         )
 
         # Topic modeling with NMF
-        vectorizer = TfidfVectorizer(stop_words='english')
+        vectorizer = TfidfVectorizer(stop_words="english")
         tfidf_matrix = vectorizer.fit_transform([combined_text])
         nmf_model = NMF(n_components=5, random_state=1)
         nmf_topics = nmf_model.fit_transform(tfidf_matrix)
@@ -382,7 +391,12 @@ def ask_question(documents, question, chat_history):
         # Extract prominent topics and terms
         topic_terms = []
         for topic_idx, topic in enumerate(nmf_model.components_):
-            topic_terms.append([vectorizer.get_feature_names_out()[i] for i in topic.argsort()[:-5 - 1:-1]])
+            topic_terms.append(
+                [
+                    vectorizer.get_feature_names_out()[i]
+                    for i in topic.argsort()[: -5 - 1 : -1]
+                ]
+            )
 
         # Create a list of prominent terms from all topics
         all_prominent_terms = [term for sublist in topic_terms for term in sublist]
@@ -440,11 +454,12 @@ def ask_question(documents, question, chat_history):
                 page.get("full_text", "No full text available")
             )
 
-    
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_page = {
-            executor.submit(check_page_relevance, doc_name, page, preprocessed_question): (doc_name, page, preprocessed_question)
+            executor.submit(
+                check_page_relevance, doc_name, page, preprocessed_question
+            ): (doc_name, page, preprocessed_question)
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
         }
