@@ -317,7 +317,7 @@ def check_page_relevance(doc_name, page, preprocessed_question):
                 return {
                     "doc_name": doc_name,
                     "page_number": page["page_number"],
-                    "extracted_topics": extracted_topics,
+                    "full_text": page_full_text,
                     "image_explanation": image_explanation,
                 }
         except requests.exceptions.RequestException as e:
