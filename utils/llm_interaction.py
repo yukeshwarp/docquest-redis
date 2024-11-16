@@ -10,6 +10,7 @@ import tiktoken
 import concurrent.futures
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import NMF
+import numpy as np
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -236,6 +237,100 @@ def summarize_page(
             )
             time.sleep(jitter)
 
+# Define function to extract topics using NMF
+def extract_topics_from_text(text, n_topics=3, n_top_words=5):
+    try:
+        vectorizer = TfidfVectorizer(stop_words="english", max_features=500)
+        tfidf = vectorizer.fit_transform([text])
+        nmf = NMF(n_components=n_topics, random_state=42)
+        nmf.fit(tfidf)
+
+        feature_names = vectorizer.get_feature_names_out()
+        topics = [
+            ", ".join(
+                [feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]]
+            )
+            for topic in nmf.components_
+        ]
+        return " | ".join(topics)
+    except Exception as e:
+        logging.error(f"Error extracting topics: {e}")
+        return "Error extracting topics."
+
+# Update the relevance check function
+def check_page_relevance(doc_name, page, preprocessed_question):
+    page_full_text = page.get("full_text", "No full text available")
+    
+    # Extract topics from the full text
+    extracted_topics = extract_topics_from_text(page_full_text)
+
+    image_explanation = (
+        "\n".join(
+            f"Page {img['page_number']}: {img['explanation']}"
+            for img in page.get("image_analysis", [])
+        )
+        or "No image analysis."
+    )
+
+    relevance_check_prompt = f"""
+    Here's the extracted topics and image analysis of a page:
+
+    Document: {doc_name}, Page {page['page_number']}
+    Extracted Topics: {extracted_topics}
+    Image Analysis: {image_explanation}
+
+    Question asked by user: {preprocessed_question}
+
+    Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
+    """
+
+    relevance_data = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are an assistant that determines if a page is relevant to a question.",
+            },
+            {"role": "user", "content": relevance_check_prompt},
+        ],
+        "temperature": 0.0,
+    }
+
+    for attempt in range(5):
+        try:
+            response = requests.post(
+                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                headers=HEADERS,
+                json=relevance_data,
+                timeout=60,
+            )
+            response.raise_for_status()
+            relevance_answer = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "no")
+                .strip()
+                .lower()
+            )
+            if relevance_answer == "yes":
+                return {
+                    "doc_name": doc_name,
+                    "page_number": page["page_number"],
+                    "extracted_topics": extracted_topics,
+                    "image_explanation": image_explanation,
+                }
+        except requests.exceptions.RequestException as e:
+            logging.error(
+                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+            )
+
+            backoff_time = (2**attempt) + random.uniform(0, 1)
+            time.sleep(backoff_time)
+
+    return None
+
+
 
 def ask_question(documents, question, chat_history):
     headers = HEADERS
@@ -345,78 +440,11 @@ def ask_question(documents, question, chat_history):
                 page.get("full_text", "No full text available")
             )
 
-    def check_page_relevance(doc_name, page):
-        page_full_text = page.get("full_text", "No full text available")
-        image_explanation = (
-            "\n".join(
-                f"Page {img['page_number']}: {img['explanation']}"
-                for img in page.get("image_analysis", [])
-            )
-            or "No image analysis."
-        )
-
-        relevance_check_prompt = f"""
-        Here's the full text and image analysis of a page:
-
-        Document: {doc_name}, Page {page['page_number']}
-        Full Text: {page_full_text}
-        Image Analysis: {image_explanation}
-
-        Question asked by user: {preprocessed_question}
-
-        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
-        """
-
-        relevance_data = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an assistant that determines if a page is relevant to a question.",
-                },
-                {"role": "user", "content": relevance_check_prompt},
-            ],
-            "temperature": 0.0,
-        }
-
-        for attempt in range(5):
-            try:
-                response = requests.post(
-                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                    headers=headers,
-                    json=relevance_data,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                relevance_answer = (
-                    response.json()
-                    .get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "no")
-                    .strip()
-                    .lower()
-                )
-                if relevance_answer == "yes":
-                    return {
-                        "doc_name": doc_name,
-                        "page_number": page["page_number"],
-                        "full_text": page_full_text,
-                        "image_explanation": image_explanation,
-                    }
-            except requests.exceptions.RequestException as e:
-                logging.error(
-                    f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
-                )
-
-                backoff_time = (2**attempt) + random.uniform(0, 1)
-                time.sleep(backoff_time)
-
-        return None
-
+    
     relevant_pages = []
     with concurrent.futures.ThreadPoolExecutor() as executor:
         future_to_page = {
-            executor.submit(check_page_relevance, doc_name, page): (doc_name, page)
+            executor.submit(check_page_relevance, doc_name, page, preprocessed_question): (doc_name, page, preprocessed_question)
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
         }
