@@ -338,294 +338,34 @@ def check_page_relevance(doc_name, page, preprocessed_question):
     return None
 
 
-def ask_question(documents, question, chat_history):
-    headers = HEADERS
-    preprocessed_question = preprocess_text(question)
-
-    def is_summary_request(question):
-        summary_check_prompt = f"""
+def is_summary_request(question):
+    summary_check_prompt = f"""
         The user asked the question: {question}
         
         Determine if this question is about requesting a complete summary of the entire document or a similar request.
         Answer "yes" or "no".
         """
-        response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json={
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are an assistant that detects summary requests.",
-                    },
-                    {"role": "user", "content": summary_check_prompt},
-                ],
-                "temperature": 0.0,
-            },
-        )
-        return (
-            response.json()
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "no")
-            .strip()
-            .lower()
-            == "yes"
-        )
-
-    if is_summary_request(preprocessed_question):
-        combined_text = "\n".join(
-            page.get("full_text", "")
-            for doc_data in documents.values()
-            for page in doc_data["pages"]
-        )
-
-        # Topic modeling with NMF
-        vectorizer = TfidfVectorizer(stop_words="english")
-        tfidf_matrix = vectorizer.fit_transform([combined_text])
-        nmf_model = NMF(n_components=5, random_state=1)
-        nmf_topics = nmf_model.fit_transform(tfidf_matrix)
-
-        # Extract prominent topics and terms
-        topic_terms = []
-        for topic_idx, topic in enumerate(nmf_model.components_):
-            topic_terms.append(
-                [
-                    vectorizer.get_feature_names_out()[i]
-                    for i in topic.argsort()[: -5 - 1 : -1]
-                ]
-            )
-
-        # Create a list of prominent terms from all topics
-        all_prominent_terms = [term for sublist in topic_terms for term in sublist]
-
-        def get_page_topic_relevance(page_text):
-            page_vectorized = vectorizer.transform([page_text])
-            topic_scores = nmf_model.transform(page_vectorized)
-            return sum(topic_scores[0])
-
-        relevant_page_summaries = [
-            page.get("text_summary", "")
-            for doc_name, doc_data in documents.items()
-            for page in doc_data["pages"]
-            if get_page_topic_relevance(page.get("full_text", "")) > 0
-        ]
-
-        combined_summary_prompt = f"""
-        Combine the following summaries into a single, comprehensive summary of the document.
-        Ensure the summary is thorough yet concise, presenting the key points in a structured, readable format using subheaders and bullets that highlights major themes, initiatives, and strategies discussed in the document:
-
-        {' '.join(relevant_page_summaries)}
-        """
-        final_summary_data = {
+    response = requests.post(
+        f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+        headers=HEADERS,
+        json={
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are an assistant that creates a document summary.",
+                    "content": "You are an assistant that detects summary requests.",
                 },
-                {"role": "user", "content": combined_summary_prompt},
+                {"role": "user", "content": summary_check_prompt},
             ],
             "temperature": 0.0,
-        }
-        final_response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json=final_summary_data,
-        )
-        final_summary = (
-            final_response.json()
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "No summary provided.")
-        )
-
-        total_tokens = final_response.json().get("usage", {}).get("total_tokens", 0)
-
-        return final_summary, total_tokens
-
-    total_tokens = count_tokens(preprocessed_question)
-
-    for doc_name, doc_data in documents.items():
-        for page in doc_data["pages"]:
-            total_tokens += count_tokens(
-                page.get("full_text", "No full text available")
-            )
-
-    relevant_pages = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_page = {
-            executor.submit(
-                check_page_relevance, doc_name, page, preprocessed_question
-            ): (doc_name, page, preprocessed_question)
-            for doc_name, doc_data in documents.items()
-            for page in doc_data["pages"]
-        }
-
-        for future in concurrent.futures.as_completed(future_to_page):
-            result = future.result()
-            if result:
-                relevant_pages.append(result)
-
-    if not relevant_pages:
-        return (
-            "The content of the provided documents does not contain an answer to your question.",
-            total_tokens,
-        )
-
-    relevant_pages_content = "\n".join(
-        f"Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}"
-        for page in relevant_pages
+        },
     )
-    relevant_tokens = count_tokens(relevant_pages_content)
-
-    if relevant_tokens <= 125000:
-        combined_relevant_content = relevant_pages_content
-    else:
-        page_summaries = []
-        for page in relevant_pages:
-            page_summary_prompt = f"""
-            Summarize the following page content briefly:
-
-            Document: {page['doc_name']}, Page {page['page_number']}
-            Full Text: {page['full_text']}
-            Image Analysis: {page['image_explanation']}
-            """
-            summary_data = {
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are an assistant that summarizes page content concisely.",
-                    },
-                    {"role": "user", "content": page_summary_prompt},
-                ],
-                "temperature": 0.0,
-            }
-            for attempt in range(5):
-                try:
-                    response = requests.post(
-                        f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                        headers=headers,
-                        json=summary_data,
-                        timeout=60,
-                    )
-                    response.raise_for_status()
-                    page_summary = (
-                        response.json()
-                        .get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                        .strip()
-                    )
-                    page_summaries.append(page_summary)
-                    break
-                except requests.exceptions.RequestException as e:
-                    logging.error(
-                        f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}"
-                    )
-                    backoff_time = (2**attempt) + random.uniform(0, 1)
-                    time.sleep(backoff_time)
-
-        combined_page_summaries = "\n".join(page_summaries)
-        section_summary_prompt = f"""
-        Combine the following summaries into a concise summary that captures the overall information:
-
-        {combined_page_summaries}
-        """
-        section_summary_data = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are an assistant that creates a concise summary from multiple summaries.",
-                },
-                {"role": "user", "content": section_summary_prompt},
-            ],
-            "temperature": 0.0,
-        }
-
-        for attempt in range(5):
-            try:
-                response = requests.post(
-                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                    headers=headers,
-                    json=section_summary_data,
-                    timeout=60,
-                )
-                response.raise_for_status()
-                combined_relevant_content = (
-                    response.json()
-                    .get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "No summary provided.")
-                    .strip()
-                )
-                break
-            except requests.exceptions.RequestException as e:
-                logging.error("Error combining summaries: {}".format(e))
-                backoff_time = (2**attempt) + random.uniform(0, 1)
-                time.sleep(backoff_time)
-        else:
-            return "Error processing question.", total_tokens
-
-    conversation_history = "".join(
-        f"User: {preprocess_text(chat['question'])}\nAssistant: {preprocess_text(chat['answer'])}\n"
-        for chat in chat_history
+    return (
+        response.json()
+        .get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "no")
+        .strip()
+        .lower()
+        == "yes"
     )
-
-    prompt_message = f"""
-        You are given the following relevant content from multiple documents:
-
-        ---
-        {combined_relevant_content}
-        ---
-
-        Previous responses over the current chat session: {conversation_history}
-
-        Answer the following question based **strictly and only** on the factual information provided in the content above.
-        Carefully verify all details from the content and do not generate any information that is not explicitly mentioned in it.
-        Ensure the response is clearly formatted for readability.
-
-        Question: {preprocessed_question}
-        """
-
-    final_data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an assistant that answers questions based only on provided knowledge base.",
-            },
-            {"role": "user", "content": prompt_message},
-        ],
-        "temperature": 0.0,
-    }
-
-    for attempt in range(5):
-        try:
-            response = requests.post(
-                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=headers,
-                json=final_data,
-                timeout=60,
-            )
-            response.raise_for_status()
-            answer_content = (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "No answer provided.")
-                .strip()
-            )
-
-            total_tokens = count_tokens(prompt_message)
-            return answer_content, total_tokens
-
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error answering question '{question}': {e}")
-            backoff_time = (2**attempt) + random.uniform(0, 1)
-            time.sleep(backoff_time)
-
-    return "Error processing question.", total_tokens

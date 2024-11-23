@@ -184,8 +184,7 @@ if prompt := st.chat_input("Ask me anything about your documents"):
                         with st.chat_message("assistant"):
                             response_placeholder = st.empty()
                             full_response = ""
-                            batched_summaries = []
-                    
+
                             # Prepare the prompt for LLM
                             prompt_for_llm = f"""
                             Given the following content with summaries and image explanations from various pages of documents, generate a structured summary with subheadings and bullet points for each document. 
@@ -193,8 +192,8 @@ if prompt := st.chat_input("Ask me anything about your documents"):
                             
                             {combined_relevant_content}
                             """
-                    
-                            # Query LLM with streaming enabled
+
+                            # Query LLM to generate the structured summary
                             response = client.chat.completions.create(
                                 model="GPT-4Omni",
                                 messages=[
@@ -207,29 +206,29 @@ if prompt := st.chat_input("Ask me anything about your documents"):
                                         "content": prompt_for_llm,
                                     },
                                 ],
-                                stream=True,  # Enable streaming
                             )
-                    
-                            # Process the streamed response
-                            for chunk in response:
-                                if "choices" in chunk:
-                                    delta = chunk["choices"][0].get("delta", {}).get("content", "")
-                                    if delta:  # Append only if there's new content
-                                        full_response += delta
-                                        response_placeholder.markdown(full_response)  # Update the output live
-                    
-                            # Append the completed response to batched summaries
+
+                            # Safely access the content of the response
+                            if isinstance(response, dict):
+                                full_response = (
+                                    response.get("choices", [{}])[0]
+                                    .get("message", {})
+                                    .get("content", "")
+                                )
+                            else:
+                                st.error("Unexpected response format from the API.")
+
+                            # Append the batch response
                             batched_summaries.append(full_response)
-                    
+
                     except Exception as e:
                         st.error(f"Error generating summary: {e}")
-                    
-                    # Combine all batch summaries into a final summary
-                    final_summary = "\n\n".join(batched_summaries)
-                    
-                    # Display the combined final summary
-                    response_placeholder.markdown(final_summary)
 
+                # Combine all batch summaries into a final summary
+                final_summary = "\n\n".join(batched_summaries)
+
+                # Display the combined final summary
+                response_placeholder.markdown(final_summary)
 
         else:
             relevant_pages = []
