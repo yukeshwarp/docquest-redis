@@ -8,8 +8,6 @@ import nltk
 from nltk.corpus import stopwords
 import tiktoken
 import concurrent.futures
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import NMF
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -89,7 +87,7 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
 
         except requests.exceptions.RequestException as e:
             logging.error(f"Error requesting image explanation: {e}")
-            return "Error: Unable to fetch image explanation due to network issues or API error."
+            return f"Error: Unable to fetch image explanation due to network issues or API error."
 
     return "Error: Max retries reached without success."
 
@@ -169,7 +167,7 @@ def generate_system_prompt(document_content):
 
     except requests.exceptions.RequestException as e:
         logging.error(f"Error generating system prompt: {e}")
-        return "Error: Unable to generate system prompt due to network issues or API error."
+        return f"Error: Unable to generate system prompt due to network issues or API error."
 
 
 def summarize_page(
@@ -237,135 +235,255 @@ def summarize_page(
             time.sleep(jitter)
 
 
-# Define function to extract topics using NMF
-def extract_topics_from_text(text, max_topics=50, max_top_words=50):
-    try:
-        # Adjust the number of features dynamically based on the text length
-        max_features = min(1000, len(text.split()))
-        vectorizer = TfidfVectorizer(stop_words="english", max_features=max_features)
-        tfidf = vectorizer.fit_transform([text])
+def ask_question(documents, question, chat_history):
+    headers = HEADERS
+    preprocessed_question = preprocess_text(question)
 
-        # Dynamically set the number of topics to avoid overfitting small texts
-        n_topics = min(max_topics, tfidf.shape[1])
-        nmf = NMF(n_components=n_topics, random_state=42, max_iter=500)
-        nmf.fit(tfidf)
+    def calculate_token_count(text):
+        return len(text.split())
 
-        feature_names = vectorizer.get_feature_names_out()
+    total_tokens = count_tokens(preprocessed_question)
 
-        # Ensure we capture as many words per topic as possible
-        n_top_words = min(max_top_words, len(feature_names))
-        topics = [
-            ", ".join([feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]])
-            for topic in nmf.components_
-        ]
-        return " | ".join(topics)
-    except Exception as e:
-        logging.error(f"Error extracting topics: {e}")
-        return "Error extracting topics."
+    for doc_name, doc_data in documents.items():
+        for page in doc_data["pages"]:
+            total_tokens += calculate_token_count(page.get("full_text", "No full text available"))
 
-
-# Update the relevance check function
-def check_page_relevance(doc_name, page, preprocessed_question):
-    page_full_text = page.get("full_text", "No full text available")
-
-    # Extract topics from the full text
-    extracted_topics = extract_topics_from_text(page_full_text)
-
-    image_explanation = (
-        "\n".join(
-            f"Page {img['page_number']}: {img['explanation']}"
-            for img in page.get("image_analysis", [])
+    def check_page_relevance(doc_name, page):
+        page_full_text = page.get("full_text", "No full text available")
+        image_explanation = (
+            "\n".join(
+                f"Page {img['page_number']}: {img['explanation']}"
+                for img in page.get("image_analysis", [])
+            )
+            or "No image analysis."
         )
-        or "No image analysis."
-    )
 
-    relevance_check_prompt = f"""
-    Here's the extracted topics and image analysis of a page:
+        relevance_check_prompt = f"""
+        Here's the full text and image analysis of a page:
 
-    Document: {doc_name}, Page {page['page_number']}
-    Extracted Topics: {extracted_topics}
-    Image Analysis: {image_explanation}
+        Document: {doc_name}, Page {page['page_number']}
+        Full Text: {page_full_text}
+        Image Analysis: {image_explanation}
 
-    Question asked by user: {preprocessed_question}
+        Question asked by user: {preprocessed_question}
 
-    Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
-    """
-
-    relevance_data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an assistant that determines if a page is relevant to a question.",
-            },
-            {"role": "user", "content": relevance_check_prompt},
-        ],
-        "temperature": 0.0,
-    }
-
-    for attempt in range(5):
-        try:
-            response = requests.post(
-                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=HEADERS,
-                json=relevance_data,
-                timeout=60,
-            )
-            response.raise_for_status()
-            relevance_answer = (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "no")
-                .strip()
-                .lower()
-            )
-            if relevance_answer == "yes":
-                return {
-                    "doc_name": doc_name,
-                    "page_number": page["page_number"],
-                    "full_text": page_full_text,
-                    "image_explanation": image_explanation,
-                }
-        except requests.exceptions.RequestException as e:
-            logging.error(
-                f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
-            )
-
-            backoff_time = (2**attempt) + random.uniform(0, 1)
-            time.sleep(backoff_time)
-
-    return None
-
-
-def is_summary_request(question):
-    summary_check_prompt = f"""
-        The user asked the question: {question}
-        
-        Determine if this question is about requesting a complete summary of the entire document or a similar request.
-        Answer "yes" or "no".
+        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
         """
-    response = requests.post(
-        f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-        headers=HEADERS,
-        json={
+
+        relevance_data = {
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are an assistant that detects summary requests.",
+                    "content": "You are an assistant that determines if a page is relevant to a question.",
                 },
-                {"role": "user", "content": summary_check_prompt},
+                {"role": "user", "content": relevance_check_prompt},
             ],
             "temperature": 0.0,
-        },
+        }
+
+        for attempt in range(5):  # Max of 5 retries
+            try:
+                response = requests.post(
+                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                    headers=headers,
+                    json=relevance_data,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                relevance_answer = (
+                    response.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "no")
+                    .strip()
+                    .lower()
+                )
+                if relevance_answer == "yes":
+                    return {
+                        "doc_name": doc_name,
+                        "page_number": page["page_number"],
+                        "full_text": page_full_text,
+                        "image_explanation": image_explanation,
+                    }
+            except requests.exceptions.RequestException as e:
+                logging.error(
+                    f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
+                )
+                # Exponential backoff with random jitter
+                backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(backoff_time)
+
+        return None
+
+    relevant_pages = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future_to_page = {
+            executor.submit(check_page_relevance, doc_name, page): (doc_name, page)
+            for doc_name, doc_data in documents.items()
+            for page in doc_data["pages"]
+        }
+
+        for future in concurrent.futures.as_completed(future_to_page):
+            result = future.result()
+            if result:
+                relevant_pages.append(result)
+
+    if not relevant_pages:
+        return "The content of the provided documents does not contain an answer to your question.", total_tokens
+
+    # Calculate token count for all relevant pages
+    relevant_pages_content = "\n".join(
+        f"Document: {page['doc_name']}, Page {page['page_number']}\nFull Text: {page['full_text']}\nImage Analysis: {page['image_explanation']}"
+        for page in relevant_pages
     )
-    return (
-        response.json()
-        .get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "no")
-        .strip()
-        .lower()
-        == "yes"
+    relevant_tokens = count_tokens(relevant_pages_content)
+
+    if relevant_tokens <= 125000:
+        combined_relevant_content = relevant_pages_content
+    else:
+        page_summaries = []
+        for page in relevant_pages:
+            page_summary_prompt = f"""
+            Summarize the following page content briefly:
+
+            Document: {page['doc_name']}, Page {page['page_number']}
+            Full Text: {page['full_text']}
+            Image Analysis: {page['image_explanation']}
+            """
+            summary_data = {
+                "model": model,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "You are an assistant that summarizes page content concisely.",
+                    },
+                    {"role": "user", "content": page_summary_prompt},
+                ],
+                "temperature": 0.0,
+            }
+            for attempt in range(5):  # Retry up to 5 times
+                try:
+                    response = requests.post(
+                        f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                        headers=headers,
+                        json=summary_data,
+                        timeout=60,
+                    )
+                    response.raise_for_status()
+                    page_summary = (
+                        response.json()
+                        .get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                        .strip()
+                    )
+                    page_summaries.append(page_summary)
+                    break
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Error summarizing page {page['page_number']} in '{page['doc_name']}': {e}")
+                    backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(backoff_time)
+
+        combined_page_summaries = "\n".join(page_summaries)
+        section_summary_prompt = f"""
+        Combine the following summaries into a concise summary that captures the overall information:
+
+        {combined_page_summaries}
+        """
+        section_summary_data = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an assistant that creates a concise summary from multiple summaries.",
+                },
+                {"role": "user", "content": section_summary_prompt},
+            ],
+            "temperature": 0.0,
+        }
+
+        for attempt in range(5):
+            try:
+                response = requests.post(
+                    f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                    headers=headers,
+                    json=section_summary_data,
+                    timeout=60,
+                )
+                response.raise_for_status()
+                combined_relevant_content = (
+                    response.json()
+                    .get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "No summary provided.")
+                    .strip()
+                )
+                break
+            except requests.exceptions.RequestException as e:
+                logging.error("Error combining summaries: {}".format(e))
+                backoff_time = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(backoff_time)
+        else:
+            return "Error processing question.", total_tokens
+
+    conversation_history = "".join(
+        f"User: {preprocess_text(chat['question'])}\nAssistant: {preprocess_text(chat['answer'])}\n"
+        for chat in chat_history
     )
+
+    prompt_message = f"""
+        You are given the following relevant content from multiple documents:
+
+        ---
+        {combined_relevant_content}
+        ---
+
+        Previous responses over the current chat session: {conversation_history}
+
+        Answer the following question based **strictly and only** on the factual information provided in the content above. 
+        Carefully verify all details from the content and do not generate any information that is not explicitly mentioned in it.
+        Ensure the response is clearly formatted for readability.
+
+        Question: {preprocessed_question}
+        """
+
+    prompt_tokens = count_tokens(prompt_message)
+    final_data = {
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are an assistant that answers questions based only on provided knowledge base.",
+            },
+            {"role": "user", "content": prompt_message},
+        ],
+        "temperature": 0.0,
+    }
+
+    for attempt in range(5):  # Retry up to 5 times
+        try:
+            response = requests.post(
+                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
+                headers=headers,
+                json=final_data,
+                timeout=60,
+            )
+            response.raise_for_status()
+            answer_content = (
+                response.json()
+                .get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "No answer provided.")
+                .strip()
+            )
+            response_tokens = count_tokens(answer_content)
+            total_tokens += response_tokens
+            return answer_content, total_tokens
+
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error answering question '{question}': {e}")
+            backoff_time = (2 ** attempt) + random.uniform(0, 1)
+            time.sleep(backoff_time)
+
+    return "Error processing question.", total_tokens
