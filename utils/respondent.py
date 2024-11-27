@@ -39,7 +39,7 @@ def is_summary_request(question):
     summary_check_prompt = f"""
         The user asked the question: {question}
         
-        Determine if this question is about requesting a complete summary of the entire document or a similar request.
+        Determine if this question is about requesting a complete summary of the entire document, tell about the document or any request similar to that.
         Answer "yes" or "no".
         """
     response = requests.post(
@@ -54,7 +54,7 @@ def is_summary_request(question):
                 },
                 {"role": "user", "content": summary_check_prompt},
             ],
-            "temperature": 0.0,
+            "temperature": 0.5,
         },
     )
     return (
@@ -220,7 +220,7 @@ def is_detailed_summary_request(question):
     intent_prompt = f"""
     You are an assistant that classifies user intents. The user's question will be provided, 
     and you must determine if the question explicitly asks for a detailed summary, 
-    pagewise summary, or topic-wise summary. 
+    pagewise summary, topic-wise summary any request similar to that. 
 
     User's question: {question}
 
@@ -237,7 +237,7 @@ def is_detailed_summary_request(question):
             },
             {"role": "user", "content": intent_prompt},
         ],
-        "temperature": 0.0,
+        "temperature": 0.5,
     }
 
     try:
