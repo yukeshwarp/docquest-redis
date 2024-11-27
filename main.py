@@ -181,7 +181,7 @@ with st.sidebar:
             ):
                 new_files.append(uploaded_file)
             else:
-                st.info(f"{uploaded_file.name} is ready to be questioned.")
+                st.info(f"{uploaded_file.name} is ready.")
 
         if new_files:
             progress_text = st.empty()
@@ -210,7 +210,7 @@ with st.sidebar:
                                 document_data,
                             )
                             st.success(
-                                f"{uploaded_file.name} processed and saved to Redis!"
+                                f"{uploaded_file.name} processed!"
                             )
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
