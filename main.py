@@ -14,15 +14,9 @@ import re
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
-    # Remove Markdown-style headings (e.g., # Heading, ## Subheading)
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-    # Remove Markdown-style bold or italic (**bold**, *italic*)
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
     text = re.sub(r"\*(.*?)\*", r"\1", text)
-    # Remove other Markdown formatting as needed (e.g., links, lists)
-    # text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Links
-    # text = re.sub(r"^\s*-\s*", "", text, flags=re.MULTILINE)  # Unordered lists
-    # text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.MULTILINE)  # Ordered lists
     return text
 
 def count_tokens(text, model="gpt-4o"):
@@ -187,7 +181,7 @@ with st.sidebar:
             ):
                 new_files.append(uploaded_file)
             else:
-                st.info(f"{uploaded_file.name} is already uploaded.")
+                st.info(f"{uploaded_file.name} is ready to be questioned.")
 
         if new_files:
             progress_text = st.empty()
