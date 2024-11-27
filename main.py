@@ -2,7 +2,8 @@ import streamlit as st
 import json
 import redis
 from utils.pdf_processing import process_pdf_task
-from utils.llm_interaction import ask_question
+from utils.respondent import ask_question
+from utils.config import redis_host, redis_pass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 from docx import Document
@@ -10,6 +11,7 @@ import uuid
 import tiktoken
 from docx.shared import Pt
 import re
+
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
@@ -19,10 +21,11 @@ def remove_markdown(text):
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
     text = re.sub(r"\*(.*?)\*", r"\1", text)
     # Remove other Markdown formatting as needed (e.g., links, lists)
-    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Links
-    text = re.sub(r"^\s*-\s*", "", text, flags=re.MULTILINE)  # Unordered lists
-    text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.MULTILINE)  # Ordered lists
+    # text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Links
+    # text = re.sub(r"^\s*-\s*", "", text, flags=re.MULTILINE)  # Unordered lists
+    # text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.MULTILINE)  # Ordered lists
     return text
+
 
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
@@ -31,9 +34,9 @@ def count_tokens(text, model="gpt-4o"):
 
 
 redis_client = redis.Redis(
-    host="yuktestredis.redis.cache.windows.net",
+    host=redis_host,
     port=6379,
-    password="VBhswgzkLiRpsHVUf4XEI2uGmidT94VhuAzCaB2tVjs=",
+    password=redis_pass,
 )
 
 
@@ -126,36 +129,36 @@ def display_chat():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
+
 def generate_word_document(content):
     doc = Document()
-    
+
     # Set up the heading
     heading = doc.add_heading("Chat Response", level=0)
     heading.runs[0].font.name = "Aptos"
     heading.runs[0].font.size = Pt(14)
-    
+
     # Add the question
     question_para = doc.add_paragraph()
     question_run = question_para.add_run("Question: ")
     question_run.font.name = "Aptos"
     question_run.font.size = Pt(12)
-    
+
     question_text = question_para.add_run(remove_markdown(content["question"]))
     question_text.font.name = "Aptos"
     question_text.font.size = Pt(12)
-    
+
     # Add the answer
     answer_para = doc.add_paragraph()
     answer_run = answer_para.add_run("Answer: ")
     answer_run.font.name = "Aptos"
     answer_run.font.size = Pt(12)
-    
+
     answer_text = answer_para.add_run(remove_markdown(content["answer"]))
     answer_text.font.name = "Aptos"
     answer_text.font.size = Pt(12)
-    
-    return doc
 
+    return doc
 
 
 with st.sidebar:
