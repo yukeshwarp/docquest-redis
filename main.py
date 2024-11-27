@@ -13,19 +13,6 @@ from docx.shared import Pt
 import re
 
 
-def remove_markdown(text):
-    """Remove Markdown formatting from text."""
-    # Remove Markdown-style headings (e.g., # Heading, ## Subheading)
-    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
-    # Remove Markdown-style bold or italic (**bold**, *italic*)
-    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
-    text = re.sub(r"\*(.*?)\*", r"\1", text)
-    # Remove other Markdown formatting as needed (e.g., links, lists)
-    # text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # Links
-    # text = re.sub(r"^\s*-\s*", "", text, flags=re.MULTILINE)  # Unordered lists
-    # text = re.sub(r"^\s*\d+\.\s*", "", text, flags=re.MULTILINE)  # Ordered lists
-    return text
-
 
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
@@ -38,7 +25,6 @@ redis_client = redis.Redis(
     port=6379,
     password=redis_pass,
 )
-
 
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
@@ -75,8 +61,21 @@ def handle_question(prompt, spinner_placeholder):
             documents_data = retrieve_user_documents_from_redis(
                 st.session_state.session_id
             )
-            with spinner_placeholder:
-                st.spinner("Processing your question...")
+            with spinner_placeholder.container():
+                st.markdown(
+                    """
+                    <header>
+                    <div style="text-align: center;">
+                        <div class="spinner" style="margin: 20px;">
+                            <div class="bounce1"></div>
+                            <div class="bounce2"></div>
+                            <div class="bounce3"></div>
+                        </div>
+                    </div>
+                    </header>
+                    """,
+                    unsafe_allow_html=True,
+                )
                 answer, tot_tokens = ask_question(
                     documents_data, prompt, st.session_state.chat_history
                 )
@@ -123,46 +122,22 @@ def display_chat():
             doc.save(word_io)
             word_io.seek(0)
             st.download_button(
-                label="Download Response",
+                label="↴",
                 data=word_io,
-                file_name=f"chat_{i + 1}.docx",
+                file_name=f"chat_{i+1}.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
 
 def generate_word_document(content):
     doc = Document()
-
-    # Set up the heading
-    heading = doc.add_heading("Chat Response", level=0)
-    heading.runs[0].font.name = "Aptos"
-    heading.runs[0].font.size = Pt(14)
-
-    # Add the question
-    question_para = doc.add_paragraph()
-    question_run = question_para.add_run("Question: ")
-    question_run.font.name = "Aptos"
-    question_run.font.size = Pt(12)
-
-    question_text = question_para.add_run(remove_markdown(content["question"]))
-    question_text.font.name = "Aptos"
-    question_text.font.size = Pt(12)
-
-    # Add the answer
-    answer_para = doc.add_paragraph()
-    answer_run = answer_para.add_run("Answer: ")
-    answer_run.font.name = "Aptos"
-    answer_run.font.size = Pt(12)
-
-    answer_text = answer_para.add_run(remove_markdown(content["answer"]))
-    answer_text.font.name = "Aptos"
-    answer_text.font.size = Pt(12)
-
+    doc.add_heading("Chat Response", 0)
+    doc.add_paragraph(f"Question: {content['question']}")
+    doc.add_paragraph(f"Answer: {content['answer']}")
     return doc
 
 
 with st.sidebar:
-    st.write(f"**Total Document Tokens:** {st.session_state.doc_token}")
     uploaded_files = st.file_uploader(
         "Upload your documents",
         type=["pdf", "docx", "xlsx", "pptx"],
@@ -185,7 +160,7 @@ with st.sidebar:
             progress_bar = st.progress(0)
             total_files = len(new_files)
 
-            with st.spinner("Processing documents..."):
+            with st.spinner("Learning about your document(s)..."):
                 with ThreadPoolExecutor(max_workers=2) as executor:
                     future_to_file = {
                         executor.submit(
@@ -206,14 +181,15 @@ with st.sidebar:
                                 uploaded_file.name,
                                 document_data,
                             )
-                            st.success(f"{uploaded_file.name} processed successfully!")
+                            st.success(
+                                f"{uploaded_file.name} processed and saved to Redis!"
+                            )
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
                         progress_bar.progress((i + 1) / total_files)
-
-            st.sidebar.write(f"**Total Document Tokens:** {st.session_state.doc_token}")
-            progress_text.text("All documents processed.")
+            st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
+            progress_text.text("Processing complete.")
             progress_bar.empty()
 
     if retrieve_user_documents_from_redis(st.session_state.session_id):
@@ -229,7 +205,7 @@ with st.sidebar:
 
 st.image("logoD.png", width=200)
 st.title("docQuest")
-st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly")
+st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly", divider="orange")
 
 if retrieve_user_documents_from_redis(st.session_state.session_id):
     prompt = st.chat_input("Ask me anything about your documents", key="chat_input")
