@@ -281,7 +281,7 @@ with st.sidebar:
                 )
                 st.write("The application will restart in 3 seconds...")
                 time.sleep(3)  # Pause for 3 seconds
-                st.experimental_rerun()
+                st.rerun(scope="fragment")
 
             with st.spinner("Learning about your document(s)..."):
                 with ThreadPoolExecutor(max_workers=2) as executor:
