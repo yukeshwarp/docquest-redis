@@ -137,26 +137,20 @@ def display_chat():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
-
 def apply_markdown_to_word(paragraph, markdown_text):
-    """
-    Converts markdown-like text into styled Word text.
-    Supports:
-    - **bold**
-    - *italic*
-    - # Heading
-    - ## Sub-heading
-    """
     # Handle heading levels
-    if markdown_text.startswith("## "):
+    if markdown_text.startswith("#### "):
+        paragraph.style = "Heading 4"
+        markdown_text = markdown_text[5:].strip()
+    elif markdown_text.startswith("### "):
+        paragraph.style = "Heading 3"
+        markdown_text = markdown_text[4:].strip()
+    elif markdown_text.startswith("## "):
         paragraph.style = "Heading 2"
         markdown_text = markdown_text[3:].strip()
     elif markdown_text.startswith("# "):
         paragraph.style = "Heading 1"
         markdown_text = markdown_text[2:].strip()
-    elif markdown_text.startswith("### "):
-        paragraph.style = "Heading 3"
-        markdown_text = markdown_text[4:].strip()
 
     # Split text for inline formatting
     parts = re.split(r"(\*\*.*?\*\*|\*.*?\*)", markdown_text)
@@ -172,6 +166,7 @@ def apply_markdown_to_word(paragraph, markdown_text):
         else:
             # Plain text
             paragraph.add_run(part)
+
 
 
 def generate_word_document(content):
