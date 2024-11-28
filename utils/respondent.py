@@ -10,6 +10,7 @@ import tiktoken
 import concurrent.futures
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import NMF
+import numpy as np
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -68,8 +69,38 @@ def is_summary_request(question):
     )
 
 
+def extract_topics_from_text(text, max_topics=50, max_top_words=50):
+    try:
+        # Adjust the number of features dynamically based on the text length
+        max_features = min(1000, len(text.split()))
+        vectorizer = TfidfVectorizer(stop_words="english", max_features=max_features)
+        tfidf = vectorizer.fit_transform([text])
+        
+        # Dynamically set the number of topics to avoid overfitting small texts
+        n_topics = min(max_topics, tfidf.shape[1])
+        nmf = NMF(n_components=n_topics, random_state=42, max_iter=500)
+        nmf.fit(tfidf)
+
+        feature_names = vectorizer.get_feature_names_out()
+        
+        # Ensure we capture as many words per topic as possible
+        n_top_words = min(max_top_words, len(feature_names))
+        topics = [
+            ", ".join([feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]])
+            for topic in nmf.components_
+        ]
+        return " | ".join(topics)
+    except Exception as e:
+        logging.error(f"Error extracting topics: {e}")
+        return "Error extracting topics."
+
+
+# Update the relevance check function
 def check_page_relevance(doc_name, page, preprocessed_question):
     page_full_text = page.get("full_text", "No full text available")
+    
+    extracted_topics = extract_topics_from_text(page_full_text)
+
     image_explanation = (
         "\n".join(
             f"Page {img['page_number']}: {img['explanation']}"
@@ -78,19 +109,17 @@ def check_page_relevance(doc_name, page, preprocessed_question):
         or "No image analysis."
     )
 
-    page_summary = page.get("text_summary", "No summary available for this page")
-
     relevance_check_prompt = f"""
-        Here's the full text and image analysis of a page:
+    Here's the extracted topics and image analysis of a page:
 
-        Document: {doc_name}, Page {page['page_number']}
-        Full Text: {page_full_text}
-        Image Analysis: {image_explanation}
+    Document: {doc_name}, Page {page['page_number']}
+    Extracted Topics: {extracted_topics}
+    Image Analysis: {image_explanation}
 
-        Question asked by user: {preprocessed_question}
+    Question asked by user: {preprocessed_question}
 
-        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
-        """
+    Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
+    """
 
     relevance_data = {
         "model": model,
@@ -128,6 +157,7 @@ def check_page_relevance(doc_name, page, preprocessed_question):
                     "page_summary": page_summary,
                     "image_explanation": image_explanation,
                 }
+                
         except requests.exceptions.RequestException as e:
             logging.error(
                 f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
