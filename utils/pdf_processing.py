@@ -14,7 +14,13 @@ from utils.extractor import (
     generate_system_prompt,
 )
 from utils.config import redis_host, redis_pass
+import tiktoken
 
+def count_tokens(text, model="gpt-4o"):
+    encoding = tiktoken.encoding_for_model(model)
+    tokens = encoding.encode(text)
+    return len(tokens)
+    
 nltk.download("stopwords", quiet=True)
 stop_words = set(stopwords.words("english"))
 
@@ -144,6 +150,10 @@ def process_pdf_pages(uploaded_file, first_file=False):
                 full_text += page.get_text("text").strip() + " "
                 if len(full_text.split()) >= 200:
                     break
+
+            if count_tokens(full_text)>350000 or total_pages>450:
+                st.warning('Document uploaded is too large to process! Restart application.', icon="⚠️")
+                st.stop()
 
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
