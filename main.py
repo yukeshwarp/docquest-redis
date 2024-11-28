@@ -170,7 +170,7 @@ with st.sidebar:
         "Upload files less than 400 pages",
         type=["pdf", "docx", "xlsx", "pptx"],
         accept_multiple_files=True,
-        help="If your question is not answered properly or the analysis isn't having proper processed content deu to error, consider restarting the application and uploading smaller documents. Split your document if individual document is more than 400 pages or has dense text.",
+        help="If your question is not answered properly or the analysis isn't having proper processed content due to error, consider restarting the application and uploading smaller documents. Split your document if individual document is more than 400 pages or has dense text.",
     )
 
     if uploaded_files:
