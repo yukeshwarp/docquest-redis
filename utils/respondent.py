@@ -403,7 +403,7 @@ def ask_question(documents, question, chat_history):
 
     if total_tokens>50000:
         relevant_pages = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future_to_page = {
                 executor.submit(
                     check_page_relevance, doc_name, page, preprocessed_question
