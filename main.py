@@ -276,8 +276,7 @@ with st.sidebar:
             text = extract_text_from_files(new_files)
             if count_tokens(str(text))>300000:
                 st.warning(
-                    f"The following files are too large and were not processed: "
-                    f"{', '.join(too_large_files)}"
+                    f"The uploaded files are too large to process, Please upload smaller documents, or consider splitting files."
                 )
                 st.stop()
                 st.write("The application will restart in 3 seconds...")
