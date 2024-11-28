@@ -278,7 +278,6 @@ with st.sidebar:
                 st.warning(
                     f"The uploaded files are too large to process, Please upload smaller documents, or consider splitting files."
                 )
-                st.stop()
                 st.write("The application will restart in 3 seconds...")
                 time.sleep(3)  # Pause for 3 seconds
                 st.experimental_rerun()
