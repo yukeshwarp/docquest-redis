@@ -11,6 +11,7 @@ import uuid
 import tiktoken
 from docx.shared import Pt
 import re
+import time
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
