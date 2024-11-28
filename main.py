@@ -189,7 +189,7 @@ with st.sidebar:
             total_files = len(new_files)
 
             with st.spinner("Learning about your document(s)..."):
-                with ThreadPoolExecutor(max_workers=2) as executor:
+                with ThreadPoolExecutor(max_workers=1) as executor:
                     future_to_file = {
                         executor.submit(
                             process_pdf_task, uploaded_file, first_file=(index == 0)
