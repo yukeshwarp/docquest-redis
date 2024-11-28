@@ -210,80 +210,80 @@ with st.sidebar:
     )
 
     if uploaded_files:
-    new_files = []
-    for uploaded_file in uploaded_files:
-        if not redis_client.exists(
-            f"{st.session_state.session_id}:document_data:{uploaded_file.name}"
-        ):
-            new_files.append(uploaded_file)
-        else:
-            st.info(f"{uploaded_file.name} is ready.")
-
-    if new_files:
-        total_token_count = st.session_state.doc_token
-        too_large = []
-        valid_files = []
-
-        for uploaded_file in new_files:
-            page_count = get_document_page_count(uploaded_file)
-            token_count = estimate_document_tokens(uploaded_file)
-
-            if page_count > 500:
-                st.error(f"⚠️ {uploaded_file.name} has more than 500 pages and cannot be processed.")
-                too_large.append(uploaded_file)
-            elif total_token_count + token_count > 700_000:
-                st.error(
-                    f"⚠️ Processing {uploaded_file.name} would exceed the token limit of 700k. "
-                    "Please remove some files or choose smaller documents."
-                )
-                too_large.append(uploaded_file)
+        new_files = []
+        for uploaded_file in uploaded_files:
+            if not redis_client.exists(
+                f"{st.session_state.session_id}:document_data:{uploaded_file.name}"
+            ):
+                new_files.append(uploaded_file)
             else:
-                valid_files.append(uploaded_file)
-                total_token_count += token_count
-
-        # Notify the user and stop if there are invalid files
-        if too_large:
-            st.error(
-                "The following files are too large to process:\n\n"
-                + "\n".join(f"- {file.name}" for file in too_large)
-            )
-            st.stop()  # Stop the app to allow the user to address the issue
-
-        # Process valid files if there are any
-        if valid_files:
-            progress_text = st.empty()
-            progress_bar = st.progress(0)
-            with st.spinner("Learning about your document(s)..."):
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    future_to_file = {
-                        executor.submit(
-                            process_pdf_task, uploaded_file, first_file=(index == 0)
-                        ): uploaded_file
-                        for index, uploaded_file in enumerate(valid_files)
-                    }
-
-                    for i, future in enumerate(as_completed(future_to_file)):
-                        uploaded_file = future_to_file[future]
-                        try:
-                            document_data = future.result()
-                            st.session_state.doc_token += count_tokens(
-                                str(document_data)
-                            )
-                            save_document_to_redis(
-                                st.session_state.session_id,
-                                uploaded_file.name,
-                                document_data,
-                            )
-                            st.success(
-                                f"{uploaded_file.name} processed!"
-                            )
-                        except Exception as e:
-                            st.error(f"Error processing {uploaded_file.name}: {e}")
-
-                        progress_bar.progress((i + 1) / len(valid_files))
-            st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
-            progress_text.text("Processing complete.")
-            progress_bar.empty()
+                st.info(f"{uploaded_file.name} is ready.")
+    
+        if new_files:
+            total_token_count = st.session_state.doc_token
+            too_large = []
+            valid_files = []
+    
+            for uploaded_file in new_files:
+                page_count = get_document_page_count(uploaded_file)
+                token_count = estimate_document_tokens(uploaded_file)
+    
+                if page_count > 500:
+                    st.error(f"⚠️ {uploaded_file.name} has more than 500 pages and cannot be processed.")
+                    too_large.append(uploaded_file)
+                elif total_token_count + token_count > 700_000:
+                    st.error(
+                        f"⚠️ Processing {uploaded_file.name} would exceed the token limit of 700k. "
+                        "Please remove some files or choose smaller documents."
+                    )
+                    too_large.append(uploaded_file)
+                else:
+                    valid_files.append(uploaded_file)
+                    total_token_count += token_count
+    
+            # Notify the user and stop if there are invalid files
+            if too_large:
+                st.error(
+                    "The following files are too large to process:\n\n"
+                    + "\n".join(f"- {file.name}" for file in too_large)
+                )
+                st.stop()  # Stop the app to allow the user to address the issue
+    
+            # Process valid files if there are any
+            if valid_files:
+                progress_text = st.empty()
+                progress_bar = st.progress(0)
+                with st.spinner("Learning about your document(s)..."):
+                    with ThreadPoolExecutor(max_workers=2) as executor:
+                        future_to_file = {
+                            executor.submit(
+                                process_pdf_task, uploaded_file, first_file=(index == 0)
+                            ): uploaded_file
+                            for index, uploaded_file in enumerate(valid_files)
+                        }
+    
+                        for i, future in enumerate(as_completed(future_to_file)):
+                            uploaded_file = future_to_file[future]
+                            try:
+                                document_data = future.result()
+                                st.session_state.doc_token += count_tokens(
+                                    str(document_data)
+                                )
+                                save_document_to_redis(
+                                    st.session_state.session_id,
+                                    uploaded_file.name,
+                                    document_data,
+                                )
+                                st.success(
+                                    f"{uploaded_file.name} processed!"
+                                )
+                            except Exception as e:
+                                st.error(f"Error processing {uploaded_file.name}: {e}")
+    
+                            progress_bar.progress((i + 1) / len(valid_files))
+                st.sidebar.write(f"Total document tokens: {st.session_state.doc_token}")
+                progress_text.text("Processing complete.")
+                progress_bar.empty()
 
             if too_large:
                 st.error(
