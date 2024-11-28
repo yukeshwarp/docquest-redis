@@ -25,7 +25,8 @@ def preprocess_text(text):
     return text
 
 
-def get_image_explanation(base64_image, retries=5, initial_delay=2):
+
+def get_image_explanation(base64_image, retries=10, initial_delay=2):
     headers = HEADERS
     data = {
         "model": model,
@@ -66,9 +67,11 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
 
         except requests.exceptions.Timeout as e:
             if attempt < retries - 1:
-                wait_time = initial_delay * (2**attempt)
+                base_wait_time = initial_delay * (2 ** attempt)
+                jitter = random.uniform(-0.2, 0.2) * base_wait_time  # Jitter ±20%
+                wait_time = max(0, base_wait_time + jitter)  # Ensure non-negative wait time
                 logging.warning(
-                    f"Timeout error. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})"
+                    f"Timeout error. Retrying in {wait_time:.2f} seconds... (Attempt {attempt + 1}/{retries})"
                 )
                 time.sleep(wait_time)
             else:
@@ -82,6 +85,7 @@ def get_image_explanation(base64_image, retries=5, initial_delay=2):
             return "Error: Unable to fetch image explanation due to network issues or API error."
 
     return "Error: Max retries reached without success."
+
 
 
 def generate_system_prompt(document_content):
@@ -146,7 +150,7 @@ def generate_system_prompt(document_content):
             f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
             headers=headers,
             json=data,
-            timeout=60,
+            timeout=120,
         )
         response.raise_for_status()
         prompt_response = (
@@ -162,12 +166,13 @@ def generate_system_prompt(document_content):
         return "Error: Unable to generate system prompt due to network issues or API error."
 
 
+
 def summarize_page(
     page_text,
     previous_summary,
     page_number,
     system_prompt,
-    max_retries=5,
+    max_retries=10,
     base_delay=1,
     max_delay=32,
 ):
@@ -216,12 +221,20 @@ def summarize_page(
         except requests.exceptions.RequestException as e:
             attempt += 1
             if attempt >= max_retries:
-                logging.error(f"Error summarizing page {page_number}: {e}")
+                logging.error(
+                    f"Max retries reached. Unable to summarize page {page_number}: {e}"
+                )
                 return f"Error: Unable to summarize page {page_number} due to network issues or API error."
 
-            delay = min(max_delay, base_delay * (2**attempt))
-            jitter = random.uniform(0, delay)
+            # Exponential backoff with jitter
+            base_delay_time = base_delay * (2 ** (attempt - 1))
+            delay = min(max_delay, base_delay_time)  # Cap delay at max_delay
+            jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50% of delay
+            wait_time = delay + jitter
+
             logging.warning(
-                f"Retrying in {jitter:.2f} seconds (attempt {attempt}) due to error: {e}"
+                f"Retrying in {wait_time:.2f} seconds (attempt {attempt}/{max_retries}) due to error: {e}"
             )
-            time.sleep(jitter)
+            time.sleep(wait_time)
+
+    return f"Error: Unable to summarize page {page_number} after {max_retries} retries."
