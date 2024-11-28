@@ -435,6 +435,7 @@ def ask_question(documents, question, chat_history):
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
         )
+        relevant_tokens = count_tokens(relevant_pages_content)
 
 
     combined_relevant_content = (
