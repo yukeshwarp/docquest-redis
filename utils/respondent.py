@@ -378,7 +378,7 @@ def ask_question(documents, question, chat_history):
                 .get("content", "No summary provided.")
             )
 
-            total_tokens = final_response.json().get("usage", {}).get("total_tokens", 0)
+            total_tokens = count_tokens(combined_summary_prompt+final_summary)
 
             return final_summary, total_tokens
 
@@ -388,7 +388,7 @@ def ask_question(documents, question, chat_history):
                 page for doc_data in documents.values() for page in doc_data["pages"]
             ]
             final_summary = summarize_pages_in_batches(all_pages)
-            total_tokens = count_tokens(final_summary)
+            total_tokens = count_tokens(all_pages)
             return final_summary, total_tokens
 
     # If not a summary request, proceed with question answering
@@ -483,7 +483,7 @@ def ask_question(documents, question, chat_history):
                 .strip()
             )
 
-            total_tokens = count_tokens(prompt_message)
+            total_tokens = count_tokens(prompt_message+answer_content)
             return answer_content, total_tokens
 
         except requests.exceptions.RequestException as e:
