@@ -11,6 +11,7 @@ import uuid
 import tiktoken
 from docx.shared import Pt
 import re
+from PyPDF2 import PdfReader
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
@@ -23,6 +24,41 @@ def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
     tokens = encoding.encode(text)
     return len(tokens)
+
+def get_document_page_count(uploaded_file):
+    """
+    Get the page count of a document. 
+    Currently implemented for PDF files.
+    """
+    try:
+        if uploaded_file.type == "application/pdf":
+            pdf_reader = PdfReader(uploaded_file)
+            return len(pdf_reader.pages)
+        else:
+            # Handle other formats like DOCX, PPTX, XLSX if needed
+            raise NotImplementedError(f"Page count extraction not implemented for {uploaded_file.type}")
+    except Exception as e:
+        raise RuntimeError(f"Error reading page count: {e}")
+
+
+def estimate_document_tokens(uploaded_file, model="gpt-4o"):
+    """
+    Estimate the number of tokens in a document using count_tokens.
+    """
+    try:
+        if uploaded_file.type == "application/pdf":
+            pdf_reader = PdfReader(uploaded_file)
+            total_tokens = 0
+            for page in pdf_reader.pages:
+                text = page.extract_text()
+                if text:  # Ensure there's text on the page
+                    total_tokens += count_tokens(text, model=model)
+            return total_tokens
+        else:
+            # Handle other formats like DOCX, PPTX, XLSX if needed
+            raise NotImplementedError(f"Token estimation not implemented for {uploaded_file.type}")
+    except Exception as e:
+        raise RuntimeError(f"Error estimating tokens: {e}")
 
 
 redis_client = redis.Redis(
