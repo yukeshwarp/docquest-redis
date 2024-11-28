@@ -397,35 +397,45 @@ def ask_question(documents, question, chat_history):
     for doc_name, doc_data in documents.items():
         for page in doc_data["pages"]:
             total_tokens += count_tokens(
-                page.get("full_text", "No full text available")
+                page.get("full_text", "")
             )
+            total_tokens += count_tokens(page.get('image_explanation', ''))
 
-    relevant_pages = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_page = {
-            executor.submit(
-                check_page_relevance, doc_name, page, preprocessed_question
-            ): (doc_name, page, preprocessed_question)
+    if total_tokens>50000:
+        relevant_pages = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_page = {
+                executor.submit(
+                    check_page_relevance, doc_name, page, preprocessed_question
+                ): (doc_name, page, preprocessed_question)
+                for doc_name, doc_data in documents.items()
+                for page in doc_data["pages"]
+            }
+    
+            for future in concurrent.futures.as_completed(future_to_page):
+                result = future.result()
+                if result:
+                    relevant_pages.append(result)
+    
+        if not relevant_pages:
+            return (
+                "The content of the provided documents does not contain an answer to your question.",
+                total_tokens,
+            )
+    
+        relevant_pages_content = "\n".join(
+            f"Document: {page['doc_name']}, Page {page['page_number']}\nSummary: {page['page_summary']}\nImage Analysis: {page['image_explanation']}"
+            for page in relevant_pages
+        )
+        relevant_tokens = count_tokens(relevant_pages_content)
+
+    else:
+        relevant_pages_content = "\n".join(
+            f"Document: {doc_data['document_name']}, Page {page['page_number']}\nSummary: {page['text_summary']}\nImage Analysis: {', '.join([analysis['explanation'] for analysis in page['image_analysis']])}"
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
-        }
-
-        for future in concurrent.futures.as_completed(future_to_page):
-            result = future.result()
-            if result:
-                relevant_pages.append(result)
-
-    if not relevant_pages:
-        return (
-            "The content of the provided documents does not contain an answer to your question.",
-            total_tokens,
         )
 
-    relevant_pages_content = "\n".join(
-        f"Document: {page['doc_name']}, Page {page['page_number']}\nSummary: {page['page_summary']}\nImage Analysis: {page['image_explanation']}"
-        for page in relevant_pages
-    )
-    relevant_tokens = count_tokens(relevant_pages_content)
 
     combined_relevant_content = (
         relevant_pages_content
