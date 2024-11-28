@@ -26,7 +26,7 @@ def preprocess_text(text):
 
 
 
-def get_image_explanation(base64_image, retries=10, initial_delay=2):
+def get_image_explanation(base64_image, retries=10, initial_delay=2, max_delay=64):
     headers = HEADERS
     data = {
         "model": model,
@@ -65,13 +65,33 @@ def get_image_explanation(base64_image, retries=10, initial_delay=2):
                 .get("content", "No explanation provided.")
             )
 
+        except requests.exceptions.HTTPError as e:
+            if response.status_code == 429:  # Too Many Requests
+                retry_after = int(response.headers.get("Retry-After", 0))
+                if retry_after > 0:
+                    logging.warning(
+                        f"Rate limit hit. Retrying after {retry_after} seconds. (Attempt {attempt + 1}/{retries})"
+                    )
+                    time.sleep(retry_after)
+                else:
+                    delay = min(max_delay, initial_delay * (2 ** attempt))
+                    jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50%
+                    wait_time = delay + jitter
+                    logging.warning(
+                        f"Rate limit hit. Retrying in {wait_time:.2f} seconds. (Attempt {attempt + 1}/{retries})"
+                    )
+                    time.sleep(wait_time)
+            else:
+                logging.error(f"HTTP error: {e}. Aborting.")
+                return f"Error: {e}"
+
         except requests.exceptions.Timeout as e:
             if attempt < retries - 1:
-                base_wait_time = initial_delay * (2 ** attempt)
-                jitter = random.uniform(-0.2, 0.2) * base_wait_time  # Jitter ±20%
-                wait_time = max(0, base_wait_time + jitter)  # Ensure non-negative wait time
+                delay = min(max_delay, initial_delay * (2 ** attempt))
+                jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50%
+                wait_time = delay + jitter
                 logging.warning(
-                    f"Timeout error. Retrying in {wait_time:.2f} seconds... (Attempt {attempt + 1}/{retries})"
+                    f"Timeout error. Retrying in {wait_time:.2f} seconds. (Attempt {attempt + 1}/{retries})"
                 )
                 time.sleep(wait_time)
             else:
@@ -81,11 +101,10 @@ def get_image_explanation(base64_image, retries=10, initial_delay=2):
                 return f"Error: Request timed out after {retries} retries."
 
         except requests.exceptions.RequestException as e:
-            logging.error(f"Error requesting image explanation: {e}")
+            logging.error(f"Request failed: {e}")
             return "Error: Unable to fetch image explanation due to network issues or API error."
 
     return "Error: Max retries reached without success."
-
 
 
 def generate_system_prompt(document_content):
