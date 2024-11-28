@@ -154,6 +154,9 @@ def apply_markdown_to_word(paragraph, markdown_text):
     elif markdown_text.startswith("# "):
         paragraph.style = "Heading 1"
         markdown_text = markdown_text[2:].strip()
+    elif markdown_text.startswith("### "):
+        paragraph.style = "Heading 3"
+        markdown_text = markdown_text[4:].strip()
 
     # Split text for inline formatting
     parts = re.split(r"(\*\*.*?\*\*|\*.*?\*)", markdown_text)
