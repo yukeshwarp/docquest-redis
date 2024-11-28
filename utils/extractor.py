@@ -25,8 +25,7 @@ def preprocess_text(text):
     return text
 
 
-
-def get_image_explanation(base64_image, retries=10, initial_delay=2, max_delay=64):
+def get_image_explanation(base64_image, retries=10, initial_delay=2, max_delay=60):
     headers = HEADERS
     data = {
         "model": model,
@@ -65,33 +64,15 @@ def get_image_explanation(base64_image, retries=10, initial_delay=2, max_delay=6
                 .get("content", "No explanation provided.")
             )
 
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429:  # Too Many Requests
-                retry_after = int(response.headers.get("Retry-After", 0))
-                if retry_after > 0:
-                    logging.warning(
-                        f"Rate limit hit. Retrying after {retry_after} seconds. (Attempt {attempt + 1}/{retries})"
-                    )
-                    time.sleep(retry_after)
-                else:
-                    delay = min(max_delay, initial_delay * (2 ** attempt))
-                    jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50%
-                    wait_time = delay + jitter
-                    logging.warning(
-                        f"Rate limit hit. Retrying in {wait_time:.2f} seconds. (Attempt {attempt + 1}/{retries})"
-                    )
-                    time.sleep(wait_time)
-            else:
-                logging.error(f"HTTP error: {e}. Aborting.")
-                return f"Error: {e}"
-
         except requests.exceptions.Timeout as e:
             if attempt < retries - 1:
-                delay = min(max_delay, initial_delay * (2 ** attempt))
-                jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50%
-                wait_time = delay + jitter
+                # Exponential backoff with jitter
+                base_wait_time = min(max_delay, initial_delay * (2**attempt))
+                jitter = random.uniform(0, base_wait_time)
+                wait_time = base_wait_time + jitter
+
                 logging.warning(
-                    f"Timeout error. Retrying in {wait_time:.2f} seconds. (Attempt {attempt + 1}/{retries})"
+                    f"Timeout error. Retrying in {wait_time:.2f} seconds... (Attempt {attempt + 1}/{retries})"
                 )
                 time.sleep(wait_time)
             else:
@@ -101,7 +82,7 @@ def get_image_explanation(base64_image, retries=10, initial_delay=2, max_delay=6
                 return f"Error: Request timed out after {retries} retries."
 
         except requests.exceptions.RequestException as e:
-            logging.error(f"Request failed: {e}")
+            logging.error(f"Error requesting image explanation: {e}")
             return "Error: Unable to fetch image explanation due to network issues or API error."
 
     return "Error: Max retries reached without success."
@@ -169,7 +150,7 @@ def generate_system_prompt(document_content):
             f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
             headers=headers,
             json=data,
-            timeout=120,
+            timeout=60,
         )
         response.raise_for_status()
         prompt_response = (
@@ -183,7 +164,6 @@ def generate_system_prompt(document_content):
     except requests.exceptions.RequestException as e:
         logging.error(f"Error generating system prompt: {e}")
         return "Error: Unable to generate system prompt due to network issues or API error."
-
 
 
 def summarize_page(
@@ -240,20 +220,12 @@ def summarize_page(
         except requests.exceptions.RequestException as e:
             attempt += 1
             if attempt >= max_retries:
-                logging.error(
-                    f"Max retries reached. Unable to summarize page {page_number}: {e}"
-                )
+                logging.error(f"Error summarizing page {page_number}: {e}")
                 return f"Error: Unable to summarize page {page_number} due to network issues or API error."
 
-            # Exponential backoff with jitter
-            base_delay_time = base_delay * (2 ** (attempt - 1))
-            delay = min(max_delay, base_delay_time)  # Cap delay at max_delay
-            jitter = random.uniform(0, delay * 0.5)  # Jitter up to 50% of delay
-            wait_time = delay + jitter
-
+            delay = min(max_delay, base_delay * (2**attempt))
+            jitter = random.uniform(0, delay)
             logging.warning(
-                f"Retrying in {wait_time:.2f} seconds (attempt {attempt}/{max_retries}) due to error: {e}"
+                f"Retrying in {jitter:.2f} seconds (attempt {attempt}) due to error: {e}"
             )
-            time.sleep(wait_time)
-
-    return f"Error: Unable to summarize page {page_number} after {max_retries} retries."
+            time.sleep(jitter)
