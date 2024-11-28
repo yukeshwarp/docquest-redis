@@ -274,7 +274,7 @@ with st.sidebar:
             progress_bar = st.progress(0)
             total_files = len(new_files)
             text = extract_text_from_files(new_files)
-            if(count_tokens(text)>300000:
+            if count_tokens(text)>300000:
                 st.warning(
                     f"The following files are too large and were not processed: "
                     f"{', '.join(too_large_files)}"
