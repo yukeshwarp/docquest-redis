@@ -170,7 +170,7 @@ with st.sidebar:
         "Upload your documents",
         type=["pdf", "docx", "xlsx", "pptx"],
         accept_multiple_files=True,
-        help="Supports PDF, DOCX, XLSX, and PPTX formats.",
+        help="Less than 400 pages",
     )
 
     if uploaded_files:
