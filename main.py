@@ -11,7 +11,6 @@ import uuid
 import tiktoken
 from docx.shared import Pt
 import re
-import time
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
@@ -164,92 +163,6 @@ def generate_word_document(content):
     answer_text.font.size = Pt(12)
 
     return doc
-from PyPDF2 import PdfReader
-from docx import Document
-from pptx import Presentation
-import pandas as pd
-
-def extract_text_from_files(file_list):
-    """
-    Extract text from a list of uploaded files.
-    """
-    all_text = {}
-    for uploaded_file in file_list:
-        file_name = uploaded_file.name
-        try:
-            text = extract_text_from_file(uploaded_file)
-            all_text[file_name] = text
-        except Exception as e:
-            all_text[file_name] = f"Error processing {file_name}: {e}"
-    return all_text
-
-
-def extract_text_from_file(uploaded_file):
-    """
-    Extract text from uploaded files of various types (PDF, DOCX, PPTX, XLSX).
-    """
-    file_type = uploaded_file.type
-
-    try:
-        if file_type == "application/pdf":
-            return extract_text_from_pdf(uploaded_file)
-        elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-            return extract_text_from_docx(uploaded_file)
-        elif file_type == "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-            return extract_text_from_pptx(uploaded_file)
-        elif file_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-            return extract_text_from_xlsx(uploaded_file)
-        else:
-            raise ValueError(f"Unsupported file type: {file_type}")
-    except Exception as e:
-        raise RuntimeError(f"Error extracting text from file: {e}")
-
-
-def extract_text_from_pdf(file):
-    """
-    Extract text from a PDF file.
-    """
-    pdf_reader = PdfReader(file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
-
-
-def extract_text_from_docx(file):
-    """
-    Extract text from a DOCX file.
-    """
-    doc = Document(file)
-    text = ""
-    for paragraph in doc.paragraphs:
-        text += paragraph.text + "\n"
-    return text
-
-
-def extract_text_from_pptx(file):
-    """
-    Extract text from a PPTX file.
-    """
-    presentation = Presentation(file)
-    text = ""
-    for slide in presentation.slides:
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                text += shape.text + "\n"
-    return text
-
-
-def extract_text_from_xlsx(file):
-    """
-    Extract text from an XLSX file by reading all cells.
-    """
-    df = pd.read_excel(file, sheet_name=None)  # Read all sheets
-    text = ""
-    for sheet_name, sheet_data in df.items():
-        text += f"Sheet: {sheet_name}\n"
-        text += sheet_data.to_string(index=False, header=True) + "\n"
-    return text
 
 
 with st.sidebar:
@@ -274,14 +187,6 @@ with st.sidebar:
             progress_text = st.empty()
             progress_bar = st.progress(0)
             total_files = len(new_files)
-            text = extract_text_from_files(new_files)
-            if count_tokens(str(text))>300000:
-                st.warning(
-                    f"The uploaded files are too large to process, Please upload smaller documents, or consider splitting files."
-                )
-                st.write("The application will restart in 3 seconds...")
-                time.sleep(3)  # Pause for 3 seconds
-                st.stop()
 
             with st.spinner("Learning about your document(s)..."):
                 with ThreadPoolExecutor(max_workers=2) as executor:
