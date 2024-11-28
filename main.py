@@ -11,6 +11,10 @@ import uuid
 import tiktoken
 from docx.shared import Pt
 import re
+from docx import Document
+from docx.shared import Pt
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
@@ -134,6 +138,39 @@ def display_chat():
             )
 
 
+def apply_markdown_to_word(paragraph, markdown_text):
+    """
+    Converts markdown-like text into styled Word text.
+    Supports:
+    - **bold**
+    - *italic*
+    - # Heading
+    - ## Sub-heading
+    """
+    # Handle heading levels
+    if markdown_text.startswith("## "):
+        paragraph.style = "Heading 2"
+        markdown_text = markdown_text[3:].strip()
+    elif markdown_text.startswith("# "):
+        paragraph.style = "Heading 1"
+        markdown_text = markdown_text[2:].strip()
+
+    # Split text for inline formatting
+    parts = re.split(r"(\*\*.*?\*\*|\*.*?\*)", markdown_text)
+    for part in parts:
+        if part.startswith("**") and part.endswith("**"):
+            # Bold
+            run = paragraph.add_run(part[2:-2])
+            run.bold = True
+        elif part.startswith("*") and part.endswith("*"):
+            # Italics
+            run = paragraph.add_run(part[1:-1])
+            run.italic = True
+        else:
+            # Plain text
+            paragraph.add_run(part)
+
+
 def generate_word_document(content):
     doc = Document()
 
@@ -144,25 +181,14 @@ def generate_word_document(content):
 
     # Add the question
     question_para = doc.add_paragraph()
-    question_run = question_para.add_run("Question: ")
-    question_run.font.name = "Aptos"
-    question_run.font.size = Pt(12)
-
-    question_text = question_para.add_run(remove_markdown(content["question"]))
-    question_text.font.name = "Aptos"
-    question_text.font.size = Pt(12)
+    apply_markdown_to_word(question_para, f"Question: {content['question']}")
 
     # Add the answer
     answer_para = doc.add_paragraph()
-    answer_run = answer_para.add_run("Answer: ")
-    answer_run.font.name = "Aptos"
-    answer_run.font.size = Pt(12)
-
-    answer_text = answer_para.add_run(remove_markdown(content["answer"]))
-    answer_text.font.name = "Aptos"
-    answer_text.font.size = Pt(12)
+    apply_markdown_to_word(answer_para, f"Answer: {content['answer']}")
 
     return doc
+
 
 
 with st.sidebar:
