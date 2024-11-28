@@ -98,8 +98,8 @@ def extract_topics_from_text(text, max_topics=50, max_top_words=50):
 # Update the relevance check function
 def check_page_relevance(doc_name, page, preprocessed_question):
     page_full_text = page.get("full_text", "No full text available")
-    
-    extracted_topics = extract_topics_from_text(page_full_text)
+    page_summary = page.get("text_summary", "No summary available for this page")
+    extracted_topics = extract_topics_from_text(page_full_text, 50, 50)
 
     image_explanation = (
         "\n".join(
