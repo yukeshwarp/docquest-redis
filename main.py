@@ -138,19 +138,6 @@ def display_chat():
             )
 
 def apply_markdown_to_word(paragraph, markdown_text):
-    # Handle heading levels
-    if markdown_text.startswith("#### "):
-        paragraph.style = "Heading 4"
-        markdown_text = markdown_text[5:].strip()
-    elif markdown_text.startswith("### "):
-        paragraph.style = "Heading 3"
-        markdown_text = markdown_text[4:].strip()
-    elif markdown_text.startswith("## "):
-        paragraph.style = "Heading 2"
-        markdown_text = markdown_text[3:].strip()
-    elif markdown_text.startswith("# "):
-        paragraph.style = "Heading 1"
-        markdown_text = markdown_text[2:].strip()
 
     # Split text for inline formatting
     parts = re.split(r"(\*\*.*?\*\*|\*.*?\*)", markdown_text)
