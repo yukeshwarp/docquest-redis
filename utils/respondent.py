@@ -10,7 +10,6 @@ import tiktoken
 import concurrent.futures
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import NMF
-import numpy as np
 
 logging.basicConfig(
     level=logging.ERROR, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -64,9 +63,7 @@ def is_summary_request(question):
         .get("message", {})
         .get("content", "no")
         .strip()
-        .lower()
-        == "yes"
-    )
+        .lower()== "yes")
 
 
 def extract_topics_from_text(text, max_topics=50, max_top_words=50):
@@ -109,8 +106,7 @@ def check_page_relevance(doc_name, page, preprocessed_question):
         or "No image analysis."
     )
 
-    relevance_check_prompt = f"""
-    Here's the extracted topics and image analysis of a page:
+    relevance_check_prompt = f"""Here's the extracted topics and image analysis of a page:
 
     Document: {doc_name}, Page {page['page_number']}
     Extracted Topics: {extracted_topics}
