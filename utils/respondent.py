@@ -75,14 +75,14 @@ def extract_topics_from_text(text, max_topics=50, max_top_words=50):
         max_features = min(1000, len(text.split()))
         vectorizer = TfidfVectorizer(stop_words="english", max_features=max_features)
         tfidf = vectorizer.fit_transform([text])
-        
+
         # Dynamically set the number of topics to avoid overfitting small texts
         n_topics = min(max_topics, tfidf.shape[1])
         nmf = NMF(n_components=n_topics, random_state=42, max_iter=500)
         nmf.fit(tfidf)
 
         feature_names = vectorizer.get_feature_names_out()
-        
+
         # Ensure we capture as many words per topic as possible
         n_top_words = min(max_top_words, len(feature_names))
         topics = [
@@ -157,7 +157,7 @@ def check_page_relevance(doc_name, page, preprocessed_question):
                     "page_summary": page_summary,
                     "image_explanation": image_explanation,
                 }
-                
+
         except requests.exceptions.RequestException as e:
             logging.error(
                 f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
@@ -396,12 +396,10 @@ def ask_question(documents, question, chat_history):
 
     for doc_name, doc_data in documents.items():
         for page in doc_data["pages"]:
-            total_tokens += count_tokens(
-                page.get("full_text", "")
-            )
-            total_tokens += count_tokens(page.get('image_explanation', ''))
+            total_tokens += count_tokens(page.get("full_text", ""))
+            total_tokens += count_tokens(page.get("image_explanation", ""))
 
-    if total_tokens>50000:
+    if total_tokens > 50000:
         relevant_pages = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future_to_page = {
@@ -411,18 +409,18 @@ def ask_question(documents, question, chat_history):
                 for doc_name, doc_data in documents.items()
                 for page in doc_data["pages"]
             }
-    
+
             for future in concurrent.futures.as_completed(future_to_page):
                 result = future.result()
                 if result:
                     relevant_pages.append(result)
-    
+
         if not relevant_pages:
             return (
                 "The content of the provided documents does not contain an answer to your question.",
                 total_tokens,
             )
-    
+
         relevant_pages_content = "\n".join(
             f"Document: {page['doc_name']}, Page {page['page_number']}\nSummary: {page['page_summary']}\nImage Analysis: {page['image_explanation']}"
             for page in relevant_pages
@@ -436,7 +434,6 @@ def ask_question(documents, question, chat_history):
             for page in doc_data["pages"]
         )
         relevant_tokens = count_tokens(relevant_pages_content)
-
 
     combined_relevant_content = (
         relevant_pages_content

@@ -16,12 +16,14 @@ from docx.shared import Pt
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
+
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
     text = re.sub(r"\*(.*?)\*", r"\1", text)
     return text
+
 
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
@@ -137,6 +139,7 @@ def display_chat():
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
 
+
 def apply_markdown_to_word(paragraph, markdown_text):
 
     # Split text for inline formatting
@@ -153,7 +156,6 @@ def apply_markdown_to_word(paragraph, markdown_text):
         else:
             # Plain text
             paragraph.add_run(part)
-
 
 
 def generate_word_document(content):
@@ -173,7 +175,6 @@ def generate_word_document(content):
     apply_markdown_to_word(answer_para, f"Answer: {content['answer']}")
 
     return doc
-
 
 
 with st.sidebar:
@@ -220,9 +221,7 @@ with st.sidebar:
                                 uploaded_file.name,
                                 document_data,
                             )
-                            st.success(
-                                f"{uploaded_file.name} processed!"
-                            )
+                            st.success(f"{uploaded_file.name} processed!")
                         except Exception as e:
                             st.error(f"Error processing {uploaded_file.name}: {e}")
 
