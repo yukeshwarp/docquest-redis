@@ -10,4 +10,6 @@ celery
 redis
 azure-storage-blob
 scikit-learn
-openai
+PyPDF2
+python-pptx
+python-docx

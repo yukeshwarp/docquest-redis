@@ -35,213 +35,11 @@ def preprocess_text(text):
     return text
 
 
-def get_image_explanation(base64_image, retries=5, initial_delay=2):
-    headers = HEADERS
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that responds in Markdown.",
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Explain the contents and figures or tables if present of this image of a document page. The explanation should be concise and semantically meaningful. Do not make assumptions about the specification and be accurate in your explanation.",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/png;base64,{base64_image}"},
-                    },
-                ],
-            },
-        ],
-        "temperature": 0.0,
-    }
-
-    url = f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}"
-
-    for attempt in range(retries):
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=120)
-            response.raise_for_status()
-            return (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "No explanation provided.")
-            )
-
-        except requests.exceptions.Timeout as e:
-            if attempt < retries - 1:
-                wait_time = initial_delay * (2**attempt)
-                logging.warning(
-                    f"Timeout error. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})"
-                )
-                time.sleep(wait_time)
-            else:
-                logging.error(
-                    f"Request failed after {retries} attempts due to timeout: {e}"
-                )
-                return f"Error: Request timed out after {retries} retries."
-
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Error requesting image explanation: {e}")
-            return "Error: Unable to fetch image explanation due to network issues or API error."
-
-    return "Error: Max retries reached without success."
-
-
-def generate_system_prompt(document_content):
-    headers = HEADERS
-    preprocessed_content = preprocess_text(document_content)
-    data = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that serves the task given.",
-            },
-            {
-                "role": "user",
-                "content": f"""You are provided with a document. Based on its content, extract and identify the following details:
-            Document_content: {preprocessed_content}
-
-            1. **Domain**: Identify the specific domain or field of expertise the document is focused on. Examples include technology, finance, healthcare, law, etc.
-            2. **Subject Matter**: Determine the main topic or focus of the document. This could be a detailed concept, theory, or subject within the domain.
-            3. **Experience**: Based on the content, infer the level of experience required to understand or analyze the document (e.g., novice, intermediate, expert).
-            4. **Expertise**: Identify any specialized knowledge, skills, or proficiency in a particular area that is necessary to evaluate the content.
-            5. **Educational Qualifications**: Infer the level of education or qualifications expected of someone who would need to review or write the document (e.g., PhD, Master's, Bachelor's, or certification in a field).
-            6. **Style**: Describe the writing style of the document. Is it formal, technical, conversational, academic, or instructional?
-            7. **Tone**: Identify the tone used in the document. For example, is it neutral, authoritative, persuasive, or informative?
-            8. **Voice**: Analyze whether the voice is active, passive, first-person, third-person, or impersonal, and whether it's personal or objective.
-
-            After extracting this information, use it to fill in the following template:
-    
-            ---
-
-            You are now assuming a persona based on the content of the provided document. Your persona should reflect the <domain> and <subject matter> of the content, with the requisite <experience>, <expertise>, and <educational qualifications> to analyze the document effectively. Additionally, you should adopt the <style>, <tone> and <voice> present in the document. Your expertise includes:
-    
-            <Domain>-Specific Expertise:
-            - In-depth knowledge and experience relevant to the <subject matter> of the document.
-            - Familiarity with the key concepts, terminology, and practices within the <domain>.
-            
-            Analytical Proficiency:
-            - Skilled in interpreting and evaluating the content, structure, and purpose of the document.
-            - Ability to assess the accuracy, clarity, and completeness of the information presented.
-    
-            Style, Tone, and Voice Adaptation:
-            - Adopt the writing <style>, <tone>, and <voice> used in the document to ensure consistency and coherence.
-            - Maintain the level of formality, technicality, or informality as appropriate to the document’s context.
-            
-            Your analysis should include:
-            - A thorough evaluation of the content, ensuring it aligns with <domain>-specific standards and practices.
-            - An assessment of the clarity and precision of the information and any accompanying diagrams or illustrations.
-            - Feedback on the strengths and potential areas for improvement in the document.
-            - A determination of whether the document meets its intended purpose and audience requirements.
-            - Proposals for any necessary amendments or enhancements to improve the document’s effectiveness and accuracy.
-        
-            ---
-
-            Generate a response filling the template with appropriate details based on the content of the document and return the filled in template as response.""",
-            },
-        ],
-        "temperature": 0.5,
-    }
-
-    try:
-        response = requests.post(
-            f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-            headers=headers,
-            json=data,
-            timeout=60,
-        )
-        response.raise_for_status()
-        prompt_response = (
-            response.json()
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-        return prompt_response.strip()
-
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error generating system prompt: {e}")
-        return "Error: Unable to generate system prompt due to network issues or API error."
-
-
-def summarize_page(
-    page_text,
-    previous_summary,
-    page_number,
-    system_prompt,
-    max_retries=5,
-    base_delay=1,
-    max_delay=32,
-):
-    headers = HEADERS
-    preprocessed_page_text = preprocess_text(page_text)
-    preprocessed_previous_summary = preprocess_text(previous_summary)
-
-    prompt_message = (
-        f"Please rewrite the following page content from (Page {page_number}) along with context flow from the previous page summary, but do not include complete summary from previous page "
-        f"to make them concise and well-structured. Maintain proper listing and referencing of the contents if present."
-        f"Do not add any new information or make assumptions. Keep the meaning accurate and the language clear.\n\n"
-        f"Previous page summary: {preprocessed_previous_summary}\n\n"
-        f"Current page content:\n{preprocessed_page_text}\n"
-    )
-
-    data = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt_message},
-        ],
-        "temperature": 0.0,
-    }
-
-    attempt = 0
-    while attempt < max_retries:
-        try:
-            response = requests.post(
-                f"{azure_endpoint}/openai/deployments/{model}/chat/completions?api-version={api_version}",
-                headers=headers,
-                json=data,
-                timeout=60,
-            )
-            response.raise_for_status()
-            logging.info(
-                f"Summary retrieved for page {page_number} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-            )
-            return (
-                response.json()
-                .get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "No summary provided.")
-                .strip()
-            )
-
-        except requests.exceptions.RequestException as e:
-            attempt += 1
-            if attempt >= max_retries:
-                logging.error(f"Error summarizing page {page_number}: {e}")
-                return f"Error: Unable to summarize page {page_number} due to network issues or API error."
-
-            delay = min(max_delay, base_delay * (2**attempt))
-            jitter = random.uniform(0, delay)
-            logging.warning(
-                f"Retrying in {jitter:.2f} seconds (attempt {attempt}) due to error: {e}"
-            )
-            time.sleep(jitter)
-
-
 def is_summary_request(question):
     summary_check_prompt = f"""
         The user asked the question: {question}
         
-        Determine if this question is about requesting a complete summary of the entire document or a similar request.
+        Determine if this question is about requesting a complete summary of the entire document, tell about the document or any request similar to that.
         Answer "yes" or "no".
         """
     response = requests.post(
@@ -256,7 +54,7 @@ def is_summary_request(question):
                 },
                 {"role": "user", "content": summary_check_prompt},
             ],
-            "temperature": 0.0,
+            "temperature": 0.5,
         },
     )
     return (
@@ -265,13 +63,41 @@ def is_summary_request(question):
         .get("message", {})
         .get("content", "no")
         .strip()
-        .lower()
-        == "yes"
-    )
+        .lower()== "yes")
 
 
+def extract_topics_from_text(text, max_topics=50, max_top_words=50):
+    try:
+        # Adjust the number of features dynamically based on the text length
+        max_features = min(1000, len(text.split()))
+        vectorizer = TfidfVectorizer(stop_words="english", max_features=max_features)
+        tfidf = vectorizer.fit_transform([text])
+
+        # Dynamically set the number of topics to avoid overfitting small texts
+        n_topics = min(max_topics, tfidf.shape[1])
+        nmf = NMF(n_components=n_topics, random_state=42, max_iter=500)
+        nmf.fit(tfidf)
+
+        feature_names = vectorizer.get_feature_names_out()
+
+        # Ensure we capture as many words per topic as possible
+        n_top_words = min(max_top_words, len(feature_names))
+        topics = [
+            ", ".join([feature_names[i] for i in topic.argsort()[-n_top_words:][::-1]])
+            for topic in nmf.components_
+        ]
+        return " | ".join(topics)
+    except Exception as e:
+        logging.error(f"Error extracting topics: {e}")
+        return "Error extracting topics."
+
+
+# Update the relevance check function
 def check_page_relevance(doc_name, page, preprocessed_question):
     page_full_text = page.get("full_text", "No full text available")
+    page_summary = page.get("text_summary", "No summary available for this page")
+    extracted_topics = extract_topics_from_text(page_full_text, 50, 50)
+
     image_explanation = (
         "\n".join(
             f"Page {img['page_number']}: {img['explanation']}"
@@ -280,19 +106,16 @@ def check_page_relevance(doc_name, page, preprocessed_question):
         or "No image analysis."
     )
 
-    page_summary = page.get("text_summary", "No summary available for this page")
+    relevance_check_prompt = f"""Here's the extracted topics and image analysis of a page:
 
-    relevance_check_prompt = f"""
-        Here's the full text and image analysis of a page:
+    Document: {doc_name}, Page {page['page_number']}
+    Extracted Topics: {extracted_topics}
+    Image Analysis: {image_explanation}
 
-        Document: {doc_name}, Page {page['page_number']}
-        Full Text: {page_full_text}
-        Image Analysis: {image_explanation}
+    Question asked by user: {preprocessed_question}
 
-        Question asked by user: {preprocessed_question}
-
-        Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
-        """
+    Respond with "yes" if this page contains any relevant information related to the user's question, even if only a small part of the page has relevant content. Otherwise, respond with "no".
+    """
 
     relevance_data = {
         "model": model,
@@ -330,6 +153,7 @@ def check_page_relevance(doc_name, page, preprocessed_question):
                     "page_summary": page_summary,
                     "image_explanation": image_explanation,
                 }
+
         except requests.exceptions.RequestException as e:
             logging.error(
                 f"Error checking relevance of page {page['page_number']} in '{doc_name}': {e}"
@@ -422,7 +246,7 @@ def is_detailed_summary_request(question):
     intent_prompt = f"""
     You are an assistant that classifies user intents. The user's question will be provided, 
     and you must determine if the question explicitly asks for a detailed summary, 
-    pagewise summary, or topic-wise summary. 
+    pagewise summary, topic-wise summary any request similar to that. 
 
     User's question: {question}
 
@@ -439,7 +263,7 @@ def is_detailed_summary_request(question):
             },
             {"role": "user", "content": intent_prompt},
         ],
-        "temperature": 0.0,
+        "temperature": 0.5,
     }
 
     try:
@@ -550,7 +374,7 @@ def ask_question(documents, question, chat_history):
                 .get("content", "No summary provided.")
             )
 
-            total_tokens = final_response.json().get("usage", {}).get("total_tokens", 0)
+            total_tokens = count_tokens(combined_summary_prompt)
 
             return final_summary, total_tokens
 
@@ -560,7 +384,7 @@ def ask_question(documents, question, chat_history):
                 page for doc_data in documents.values() for page in doc_data["pages"]
             ]
             final_summary = summarize_pages_in_batches(all_pages)
-            total_tokens = count_tokens(final_summary)
+            total_tokens = count_tokens(str(all_pages))
             return final_summary, total_tokens
 
     # If not a summary request, proceed with question answering
@@ -568,36 +392,44 @@ def ask_question(documents, question, chat_history):
 
     for doc_name, doc_data in documents.items():
         for page in doc_data["pages"]:
-            total_tokens += count_tokens(
-                page.get("full_text", "No full text available")
+            total_tokens += count_tokens(page.get("full_text", ""))
+            total_tokens += count_tokens(page.get("image_explanation", ""))
+
+    if total_tokens > 50000:
+        relevant_pages = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future_to_page = {
+                executor.submit(
+                    check_page_relevance, doc_name, page, preprocessed_question
+                ): (doc_name, page, preprocessed_question)
+                for doc_name, doc_data in documents.items()
+                for page in doc_data["pages"]
+            }
+
+            for future in concurrent.futures.as_completed(future_to_page):
+                result = future.result()
+                if result:
+                    relevant_pages.append(result)
+
+        if not relevant_pages:
+            return (
+                "The content of the provided documents does not contain an answer to your question.",
+                total_tokens,
             )
 
-    relevant_pages = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        future_to_page = {
-            executor.submit(
-                check_page_relevance, doc_name, page, preprocessed_question
-            ): (doc_name, page, preprocessed_question)
+        relevant_pages_content = "\n".join(
+            f"Document: {page['doc_name']}, Page {page['page_number']}\nSummary: {page['page_summary']}\nImage Analysis: {page['image_explanation']}"
+            for page in relevant_pages
+        )
+        relevant_tokens = count_tokens(relevant_pages_content)
+
+    else:
+        relevant_pages_content = "\n".join(
+            f"Document: {doc_data['document_name']}, Page {page['page_number']}\nSummary: {page['text_summary']}\nImage Analysis: {', '.join([analysis['explanation'] for analysis in page['image_analysis']])}"
             for doc_name, doc_data in documents.items()
             for page in doc_data["pages"]
-        }
-
-        for future in concurrent.futures.as_completed(future_to_page):
-            result = future.result()
-            if result:
-                relevant_pages.append(result)
-
-    if not relevant_pages:
-        return (
-            "The content of the provided documents does not contain an answer to your question.",
-            total_tokens,
         )
-
-    relevant_pages_content = "\n".join(
-        f"Document: {page['doc_name']}, Page {page['page_number']}\nSummary: {page['page_summary']}\nImage Analysis: {page['image_explanation']}"
-        for page in relevant_pages
-    )
-    relevant_tokens = count_tokens(relevant_pages_content)
+        relevant_tokens = count_tokens(relevant_pages_content)
 
     combined_relevant_content = (
         relevant_pages_content

@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()  # Load environment variables from the .env file
+load_dotenv()
 
 azure_endpoint = os.getenv("AZURE_ENDPOINT")
 api_key = os.getenv("API_KEY")

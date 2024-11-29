@@ -8,12 +8,21 @@ from celery import Celery
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from nltk.corpus import stopwords
 from utils.file_conversion import convert_office_to_pdf
-from utils.llm_interaction import (
+from utils.extractor import (
     summarize_page,
     get_image_explanation,
     generate_system_prompt,
 )
 from utils.config import redis_host, redis_pass
+import tiktoken
+import streamlit as st
+
+
+def count_tokens(text, model="gpt-4o"):
+    encoding = tiktoken.encoding_for_model(model)
+    tokens = encoding.encode(text)
+    return len(tokens)
+
 
 nltk.download("stopwords", quiet=True)
 stop_words = set(stopwords.words("english"))
@@ -113,7 +122,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
                 "image_analysis": [],
             }
 
-    with ThreadPoolExecutor() as page_executor:  # Execute within the batch for parallelization
+    with ThreadPoolExecutor() as page_executor:
         future_to_page = {
             page_executor.submit(process_single_page, page_number): page_number
             for page_number in batch
@@ -144,6 +153,13 @@ def process_pdf_pages(uploaded_file, first_file=False):
                 full_text += page.get_text("text").strip() + " "
                 if len(full_text.split()) >= 200:
                     break
+
+            if count_tokens(full_text) > 350000 or total_pages > 450:
+                st.warning(
+                    "Document uploaded is too large to process! Restart application.",
+                    icon="⚠️",
+                )
+                st.stop()
 
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
@@ -184,4 +200,4 @@ def process_pdf_task(self, uploaded_file, first_file=False):
         return result
     except Exception as e:
         logging.error(f"Failed to process PDF: {e}")
-        self.retry(exc=e, countdown=5)  # Enable retry with a delay
+        self.retry(exc=e, countdown=5)
