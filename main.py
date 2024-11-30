@@ -73,7 +73,7 @@ def handle_question(prompt, spinner_placeholder):
                     "answer": f"{answer}\nTotal tokens: {tot_tokens}",
                 }
             )
-            st.success("Here is your answer!")
+            #st.success("Here is your answer!")
         except Exception as e:
             st.error(f"Error processing question: {e}")
         finally:
