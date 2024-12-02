@@ -15,7 +15,7 @@ from utils.extractor import (
 )
 from utils.config import redis_host, redis_pass
 import tiktoken
-
+import streamlit as st
 
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
@@ -152,6 +152,7 @@ def process_pdf_pages(uploaded_file, first_file=False):
                 full_text += page.get_text("text").strip() + " "
                 if count_tokens(full_text)>1:
                     logging.error("This document is too large!")
+                    st.warning('Document is too large to query, results may be inaccurate. Consider uploading smaller document.', icon="⚠️")
                     exit()
 
             first_200_words = " ".join(full_text.split()[:200])
