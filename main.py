@@ -11,6 +11,8 @@ import tiktoken
 from docx.shared import Pt
 import re
 
+
+
 def remove_markdown(text):
     """Remove Markdown formatting from text."""
     text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
@@ -37,7 +39,9 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "doc_token" not in st.session_state:
     st.session_state.doc_token = 0
-
+if "RAW_TOKEN" not in st.session_state:
+    st.session_state.RAW_TOKEN = 0
+    
 def save_document_to_redis(session_id, file_name, document_data):
     redis_key = f"{session_id}:document_data:{file_name}"
     redis_client.set(redis_key, json.dumps(document_data))
@@ -188,13 +192,15 @@ with st.sidebar:
                 try:
                     for i, uploaded_file in enumerate(new_files):
                         document_data = process_pdf_task(uploaded_file, first_file=(i == 0))
-                        if document_data is "":
+                        if document_data == "":
                             st.warning('The document exceeds the size limit for processing!', icon="⚠️")
                             break
-                            #exit()
+                            
                         st.session_state.doc_token += count_tokens(str(document_data))
                         if st.session_state.doc_token>400000:
-                            st.warning('Document is too large to query, results may be inaccurate. Consider uploading smaller document.', icon="⚠️")
+                            st.warning('Document contents so far is too large to query not processing documents further. Results may be inaccurate, consider uploading smaller documents. .', icon="⚠️")
+                            break
+                        
                         save_document_to_redis(
                             st.session_state.session_id,
                             uploaded_file.name,
