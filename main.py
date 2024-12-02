@@ -191,6 +191,7 @@ with st.sidebar:
                         if document_data is "":
                             st.warning('Document is too big!', icon="⚠️")
                             st.stop()
+                            exit()
                         st.session_state.doc_token += count_tokens(str(document_data))
                         if st.session_state.doc_token>400000:
                             st.warning('Document is too large to query, results may be inaccurate. Consider uploading smaller document.', icon="⚠️")
