@@ -151,9 +151,7 @@ def process_pdf_pages(uploaded_file, first_file=False):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
                 if count_tokens(full_text)>1:
-                    logging.error("This document is too large!")
-                    st.warning('Document is too large to query, results may be inaccurate. Consider uploading smaller document.', icon="⚠️")
-                    exit()
+                    return ""
 
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
