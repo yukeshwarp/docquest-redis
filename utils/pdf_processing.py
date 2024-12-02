@@ -150,8 +150,8 @@ def process_pdf_pages(uploaded_file, first_file=False):
             for page_number in range(total_pages):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
-                if len(full_text.split()) >= 200:
-                    break
+                if count_tokens(full_text)>1:
+                    exit()
 
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
