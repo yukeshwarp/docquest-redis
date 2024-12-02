@@ -189,7 +189,7 @@ with st.sidebar:
                     for i, uploaded_file in enumerate(new_files):
                         document_data = process_pdf_task(uploaded_file, first_file=(i == 0))
                         if document_data is "":
-                            st.warning('Document is too big!', icon="⚠️")
+                            st.warning('The document exceeds the size limit for processing!', icon="⚠️")
                             st.stop()
                             exit()
                         st.session_state.doc_token += count_tokens(str(document_data))
