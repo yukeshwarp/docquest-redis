@@ -145,14 +145,12 @@ def process_pdf_pages(uploaded_file, first_file=False):
         pdf_document = fitz.open(stream=pdf_stream, filetype="pdf")
         document_data = {"document_name": file_name, "pages": []}
         total_pages = len(pdf_document)
-        if total_pages>400:
-            return ""
         full_text = ""
         if first_file and generated_system_prompt is None:
             for page_number in range(total_pages):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
-                if count_tokens(full_text)>100000:
+                if count_tokens(full_text)>200000 or total_pages>500:
                     return ""
 
             first_200_words = " ".join(full_text.split()[:200])
