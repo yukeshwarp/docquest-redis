@@ -151,7 +151,7 @@ def process_pdf_pages(uploaded_file, first_file=False):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
                 st.session_state.RAW_TOKEN += count_tokens(page.get_text("text").strip() + " ")
-                if count_tokens(full_text)>2500000 or st.session_state.RAW_TOKEN>250000 or total_pages>470:
+                if count_tokens(full_text)>250000 or st.session_state.RAW_TOKEN>250000 or total_pages>470:
                     return ""
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
