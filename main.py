@@ -197,7 +197,7 @@ with st.sidebar:
                             break
                             
                         st.session_state.doc_token += count_tokens(str(document_data))
-                        if st.session_state.doc_token>400000:
+                        if st.session_state.doc_token>600000:
                             st.warning('Document contents so far is too large to query not processing documents further. Results may be inaccurate, consider uploading smaller documents. .', icon="⚠️")
                             break
                         
