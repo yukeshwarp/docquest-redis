@@ -52,7 +52,9 @@ def handle_question(prompt, spinner_placeholder):
                 for doc_id, doc_info in st.session_state.documents.items()
             }
             if not documents_data:
-                st.warning("No documents available in the session to answer the question.")
+                st.warning(
+                    "No documents available in the session to answer the question."
+                )
                 return
 
             with spinner_placeholder.container():
@@ -89,10 +91,10 @@ st.title("docQuest")
 st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly")
 
 with st.sidebar:
-    with st.expander("Document(s) are ready:", expanded=True):            
+    with st.expander("Document(s) are ready:", expanded=True):
         to_remove = []
         for doc_id, doc_info in st.session_state.documents.items():
-            #st.write(f"{doc_info['name']}")
+            # st.write(f"{doc_info['name']}")
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.write(f"{doc_info['name']}")
@@ -101,8 +103,12 @@ with st.sidebar:
                     to_remove.append(doc_id)
 
         for doc_id in to_remove:
-            st.session_state.doc_token -= count_tokens(str(st.session_state.documents[doc_id]["data"]))
-            st.session_state.removed_documents.append(st.session_state.documents[doc_id]["name"])
+            st.session_state.doc_token -= count_tokens(
+                str(st.session_state.documents[doc_id]["data"])
+            )
+            st.session_state.removed_documents.append(
+                st.session_state.documents[doc_id]["name"]
+            )
             redis_client.delete(f"{st.session_state.session_id}:document_data:{doc_id}")
             del st.session_state.documents[doc_id]
             st.success("Document removed successfully!")
@@ -118,7 +124,7 @@ with st.sidebar:
             type=["pdf", "docx", "xlsx", "pptx"],
             accept_multiple_files=True,
             help="If your question is not answered properly or there's an error, consider uploading smaller documents or splitting larger ones.",
-            label_visibility="collapsed"
+            label_visibility="collapsed",
         )
 
         if uploaded_files:
@@ -126,12 +132,16 @@ with st.sidebar:
             for uploaded_file in uploaded_files:
                 # Skip files that are removed or already uploaded
                 if (
-                    uploaded_file.name not in [st.session_state.documents[doc_id]["name"] for doc_id in st.session_state.documents]
+                    uploaded_file.name
+                    not in [
+                        st.session_state.documents[doc_id]["name"]
+                        for doc_id in st.session_state.documents
+                    ]
                     and uploaded_file.name not in st.session_state.removed_documents
                 ):
                     new_files.append(uploaded_file)
-                #else:
-                    #st.info(f"{uploaded_file.name} is already uploaded or was removed.")
+                # else:
+                # st.info(f"{uploaded_file.name} is already uploaded or was removed.")
 
             if new_files:
                 progress_text = st.empty()
@@ -141,9 +151,14 @@ with st.sidebar:
                 with st.spinner("Learning about your document(s)..."):
                     try:
                         for i, uploaded_file in enumerate(new_files):
-                            document_data = process_pdf_task(uploaded_file, first_file=(i == 0))
+                            document_data = process_pdf_task(
+                                uploaded_file, first_file=(i == 0)
+                            )
                             if not document_data:
-                                st.warning("The document exceeds the size limit for processing!", icon="⚠️")
+                                st.warning(
+                                    "The document exceeds the size limit for processing!",
+                                    icon="⚠️",
+                                )
                                 uploaded_file.seek(0)
                                 continue
 
@@ -162,7 +177,9 @@ with st.sidebar:
                                 "data": document_data,
                             }
                             st.session_state.doc_token += doc_token_count
-                            save_document_to_redis(st.session_state.session_id, doc_id, document_data)
+                            save_document_to_redis(
+                                st.session_state.session_id, doc_id, document_data
+                            )
                             st.success(f"{uploaded_file.name} processed!")
                             time.sleep(1)
                             st.rerun()
@@ -173,7 +190,7 @@ with st.sidebar:
                 progress_text.text("Processing complete.")
                 progress_bar.empty()
                 st.rerun()
-                
+
 
 # Main input and chat display
 if st.session_state.documents:

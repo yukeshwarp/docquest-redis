@@ -17,6 +17,7 @@ from utils.config import redis_host, redis_pass
 import tiktoken
 import streamlit as st
 
+
 def count_tokens(text, model="gpt-4o"):
     encoding = tiktoken.encoding_for_model(model)
     tokens = encoding.encode(text)
@@ -152,8 +153,8 @@ def process_pdf_pages(uploaded_file, first_file=False):
             for page_number in range(total_pages):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
-                #st.session_state.RAW_TOKEN += count_tokens(page.get_text("text").strip() + " ")
-                if count_tokens(full_text)>200000 :
+                # st.session_state.RAW_TOKEN += count_tokens(page.get_text("text").strip() + " ")
+                if count_tokens(full_text) > 200000:
                     return ""
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
