@@ -112,7 +112,7 @@ with st.sidebar:
             redis_client.delete(f"{st.session_state.session_id}:document_data:{doc_id}")
             del st.session_state.documents[doc_id]
             st.success("Document removed successfully!")
-            time.sleep(1.3)
+            time.sleep(1)
             st.rerun()
 
 
