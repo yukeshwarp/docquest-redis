@@ -15,6 +15,7 @@ from utils.extractor import (
 )
 from utils.config import redis_host, redis_pass
 import tiktoken
+import streamlit as st
 
 
 def count_tokens(text, model="gpt-4o"):
@@ -145,14 +146,16 @@ def process_pdf_pages(uploaded_file, first_file=False):
         pdf_document = fitz.open(stream=pdf_stream, filetype="pdf")
         document_data = {"document_name": file_name, "pages": []}
         total_pages = len(pdf_document)
+        # if total_pages>470:
+        #     return ""
         full_text = ""
         if first_file and generated_system_prompt is None:
             for page_number in range(total_pages):
                 page = pdf_document.load_page(page_number)
                 full_text += page.get_text("text").strip() + " "
-                if len(full_text.split()) >= 200:
-                    break
-
+                # st.session_state.RAW_TOKEN += count_tokens(page.get_text("text").strip() + " ")
+                if count_tokens(full_text) > 200000:
+                    return ""
             first_200_words = " ".join(full_text.split()[:200])
             generated_system_prompt = generate_system_prompt(first_200_words)
 
