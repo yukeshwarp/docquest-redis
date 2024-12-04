@@ -106,7 +106,7 @@ with st.sidebar:
             redis_client.delete(f"{st.session_state.session_id}:document_data:{doc_id}")
             del st.session_state.documents[doc_id]
             st.success("Document removed successfully!")
-            time.wait(1.3)
+            time.sleep(1.3)
             st.rerun()
 
 
@@ -164,7 +164,7 @@ with st.sidebar:
                             st.session_state.doc_token += doc_token_count
                             save_document_to_redis(st.session_state.session_id, doc_id, document_data)
                             st.success(f"{uploaded_file.name} processed!")
-                            time.wait(1)
+                            time.sleep(1)
                             st.rerun()
                             progress_bar.progress((i + 1) / total_files)
                     except Exception as e:
@@ -173,6 +173,7 @@ with st.sidebar:
                 progress_text.text("Processing complete.")
                 progress_bar.empty()
                 st.rerun()
+                
 
 # Main input and chat display
 if st.session_state.documents:
