@@ -54,7 +54,7 @@ def is_summary_request(question):
                 },
                 {"role": "user", "content": summary_check_prompt},
             ],
-            "temperature": 0.5,
+            "temperature": 0.0,
         },
     )
     return (
@@ -263,7 +263,7 @@ def is_detailed_summary_request(question):
             },
             {"role": "user", "content": intent_prompt},
         ],
-        "temperature": 0.5,
+        "temperature": 0.0,
     }
 
     try:
