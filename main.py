@@ -1,9 +1,15 @@
+from azure.storage.blob import BlobServiceClient, ContentSettings
 import streamlit as st
 import json
 import redis
 from utils.pdf_processing import process_pdf_task
 from utils.respondent import ask_question
-from utils.config import redis_host, redis_pass
+from utils.config import (
+    redis_host,
+    redis_pass,
+    azure_blob_connection_string,
+    azure_container_name,
+)
 import uuid
 import tiktoken
 import time
@@ -23,6 +29,16 @@ redis_client = redis.Redis(
     password=redis_pass,
 )
 
+# Initialize Blob Service Client
+blob_service_client = BlobServiceClient.from_connection_string(
+    azure_blob_connection_string
+)
+container_client = blob_service_client.get_container_client(azure_container_name)
+
+# Ensure the container exists
+if not container_client.exists():
+    container_client.create_container()
+
 # Initialize session state
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
@@ -40,6 +56,20 @@ def save_document_to_redis(session_id, doc_id, document_data):
     """Save document data to Redis."""
     redis_key = f"{session_id}:document_data:{doc_id}"
     redis_client.set(redis_key, json.dumps(document_data))
+
+
+def upload_to_blob_storage(file_name, file_data):
+    """Upload a file to Azure Blob Storage."""
+    try:
+        blob_client = container_client.get_blob_client(file_name)
+        blob_client.upload_blob(
+            file_data,
+            content_settings=ContentSettings(content_type="application/pdf"),
+            overwrite=True,
+        )
+        st.success(f"Uploaded {file_name} to Azure Blob Storage!")
+    except Exception as e:
+        st.error(f"Error uploading to Azure Blob Storage: {e}")
 
 
 def handle_question(prompt, spinner_placeholder):
@@ -94,7 +124,6 @@ with st.sidebar:
     with st.expander("Document(s) are ready:", expanded=True):
         to_remove = []
         for doc_id, doc_info in st.session_state.documents.items():
-            # st.write(f"{doc_info['name']}")
             col1, col2 = st.columns([4, 1])
             with col1:
                 st.write(f"{doc_info['name']}")
@@ -115,8 +144,6 @@ with st.sidebar:
             time.sleep(1)
             st.rerun()
 
-
-# Sidebar
 with st.sidebar:
     with st.expander("Upload Document(s)", expanded=False):
         uploaded_files = st.file_uploader(
@@ -140,8 +167,6 @@ with st.sidebar:
                     and uploaded_file.name not in st.session_state.removed_documents
                 ):
                     new_files.append(uploaded_file)
-                # else:
-                # st.info(f"{uploaded_file.name} is already uploaded or was removed.")
 
             if new_files:
                 progress_text = st.empty()
@@ -180,6 +205,10 @@ with st.sidebar:
                             save_document_to_redis(
                                 st.session_state.session_id, doc_id, document_data
                             )
+                            # Save to Azure Blob Storage
+                            upload_to_blob_storage(
+                                uploaded_file.name, uploaded_file.getvalue()
+                            )
                             st.success(f"{uploaded_file.name} processed!")
                             time.sleep(1)
                             st.rerun()
@@ -191,8 +220,6 @@ with st.sidebar:
                 progress_bar.empty()
                 st.rerun()
 
-
-# Main input and chat display
 if st.session_state.documents:
     prompt = st.chat_input("Ask me anything about your documents", key="chat_input")
     spinner_placeholder = st.empty()
