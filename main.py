@@ -145,10 +145,12 @@ def display_chat():
 
                 # Add a download button for the Word document
                 st.download_button(
-                    label="Download Response as Word Document",
+                    label="Download",
                     data=doc_io,
                     file_name=f"chat_response_{i+1}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    help="Download response as word document",
+                    icon="📥"
                 )
 
 
