@@ -2,6 +2,8 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 import streamlit as st
 import json
 import redis
+from io import BytesIO
+from docx import Document
 from utils.pdf_processing import process_pdf_task
 from utils.respondent import ask_question
 from utils.config import (
@@ -106,13 +108,32 @@ def handle_question(prompt, spinner_placeholder):
 
 
 def display_chat():
-    """Display chat history."""
+    """Display chat history with download buttons."""
     if st.session_state.chat_history:
         for i, chat in enumerate(st.session_state.chat_history):
             with st.chat_message("user"):
                 st.write(chat["question"])
             with st.chat_message("assistant"):
                 st.write(chat["answer"])
+
+                # Generate a Word document for the assistant's response
+                doc = Document()
+                doc.add_heading("Chat Response", level=1)
+                doc.add_paragraph(f"Question: {chat['question']}")
+                doc.add_paragraph(f"Answer: {chat['answer']}")
+                
+                # Save the document to a BytesIO object
+                doc_io = BytesIO()
+                doc.save(doc_io)
+                doc_io.seek(0)
+
+                # Add a download button for the Word document
+                st.download_button(
+                    label="Download Response",
+                    data=doc_io,
+                    file_name=f"chat_response_{i+1}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
 
 
 # Main UI
