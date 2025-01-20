@@ -88,7 +88,7 @@ def process_page_batch(pdf_document, batch, system_prompt, ocr_text_threshold=0.
         nonlocal previous_summary  # Use nonlocal to access the outer variable
         try:
             page = pdf_document.load_page(page_number)
-            text = page.get_text("text").strip()
+            text = remove_stopwords_and_blanks(page.get_text("text").strip())
             summary = ""
 
             if text != "":
