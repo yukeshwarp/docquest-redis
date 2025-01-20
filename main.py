@@ -116,12 +116,28 @@ def display_chat():
             with st.chat_message("assistant"):
                 st.write(chat["answer"])
 
-                # Generate a Word document for the assistant's response
+                # Create a Word document with formatted content
                 doc = Document()
                 doc.add_heading("Chat Response", level=1)
-                doc.add_paragraph(f"Question: {chat['question']}")
-                doc.add_paragraph(f"Answer: {chat['answer']}")
+                doc.add_paragraph("Question:", style="Heading 2")
+                doc.add_paragraph(chat["question"])
+
+                doc.add_paragraph("Answer:", style="Heading 2")
                 
+                # Format answer content
+                for line in chat["answer"].split("\n"):
+                    if line.startswith("#### "):  # Convert to Heading 3
+                        doc.add_heading(line.replace("#### ", ""), level=3)
+                    elif line.startswith("- **"):  # Bold for list items
+                        line = line.replace("- **", "").replace("**:", ":")
+                        doc.add_paragraph(line, style="List Bullet")
+                    elif line.startswith("- "):  # Normal bullet points
+                        doc.add_paragraph(line, style="List Bullet")
+                    elif line.startswith("### "):  # Convert to Heading 2
+                        doc.add_heading(line.replace("### ", ""), level=2)
+                    elif line.strip():  # Add as normal paragraph
+                        doc.add_paragraph(line)
+
                 # Save the document to a BytesIO object
                 doc_io = BytesIO()
                 doc.save(doc_io)
@@ -129,7 +145,7 @@ def display_chat():
 
                 # Add a download button for the Word document
                 st.download_button(
-                    label="Download Response",
+                    label="Download Response as Word Document",
                     data=doc_io,
                     file_name=f"chat_response_{i+1}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
