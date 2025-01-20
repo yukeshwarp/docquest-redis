@@ -4,8 +4,8 @@ import json
 import redis
 from io import BytesIO
 from docx import Document
-from utils.pdf_processing import process_pdf_task
-from utils.respondent import ask_question
+from pdf_processing import process_pdf_task
+from respondent import ask_question
 from utils.config import (
     redis_host,
     redis_pass,
@@ -24,34 +24,31 @@ def count_tokens(text, model="gpt-4o"):
     return len(tokens)
 
 
-# Initialize Redis client
 redis_client = redis.Redis(
     host=redis_host,
     port=6379,
     password=redis_pass,
 )
 
-# Initialize Blob Service Client
+
 blob_service_client = BlobServiceClient.from_connection_string(
     azure_blob_connection_string
 )
 container_client = blob_service_client.get_container_client(azure_container_name)
-
-# Ensure the container exists
 if not container_client.exists():
     container_client.create_container()
 
-# Initialize session state
+
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
 if "documents" not in st.session_state:
-    st.session_state.documents = {}  # Store documents with unique IDs
+    st.session_state.documents = {}  
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "doc_token" not in st.session_state:
     st.session_state.doc_token = 0
 if "removed_documents" not in st.session_state:
-    st.session_state.removed_documents = []  # Track removed document names
+    st.session_state.removed_documents = []  
 
 
 def save_document_to_redis(session_id, doc_id, document_data):
@@ -78,7 +75,7 @@ def handle_question(prompt, spinner_placeholder):
     """Handle user question by querying the documents in the session."""
     if prompt:
         try:
-            # Only use documents currently in the session
+            
             documents_data = {
                 doc_id: doc_info["data"]
                 for doc_id, doc_info in st.session_state.documents.items()
@@ -154,7 +151,7 @@ def display_chat():
                 )
 
 
-# Main UI
+
 st.title("docQuest")
 st.subheader("Unveil the Essence, Compare Easily, Analyze Smartly")
 
@@ -195,7 +192,7 @@ with st.sidebar:
         if uploaded_files:
             new_files = []
             for uploaded_file in uploaded_files:
-                # Skip files that are removed or already uploaded
+                
                 if (
                     uploaded_file.name
                     not in [
@@ -243,7 +240,7 @@ with st.sidebar:
                             save_document_to_redis(
                                 st.session_state.session_id, doc_id, document_data
                             )
-                            # Save to Azure Blob Storage
+                            
                             upload_to_blob_storage(
                                 uploaded_file.name, uploaded_file.getvalue()
                             )
