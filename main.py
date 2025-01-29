@@ -183,7 +183,7 @@ with st.sidebar:
     with st.expander("Upload Document(s)", expanded=False):
         uploaded_files = st.file_uploader(
             "Upload files less than 400 pages",
-            type=["pdf", "docx", "xlsx", "pptx"],
+            type=["pdf", "docx", "xlsx", "pptx", "xls"],
             accept_multiple_files=True,
             help="If your question is not answered properly or there's an error, consider uploading smaller documents or splitting larger ones.",
             label_visibility="collapsed",
